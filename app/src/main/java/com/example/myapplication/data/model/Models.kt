@@ -3,10 +3,10 @@ package com.example.myapplication.data.model
 import kotlinx.serialization.Serializable
 
 // ══════════════════════════════════════════════════
-//  Modelli dati condivisi tra i moduli
+//  Modelli dati condivisi tra i moduli — Progress 1%
 // ══════════════════════════════════════════════════
 
-/** Impostazioni app e moduli abilitati */
+/** Impostazioni app, preferenze utente e moduli abilitati */
 @Serializable
 data class AppSettings(
     val onboardingCompleted: Boolean = false,
@@ -16,6 +16,8 @@ data class AppSettings(
     val userHeight: Float = 0f,
     val userAge: Int = 0,
     val userGender: String = "",
+    val themeMode: String = "oled", // "oled", "light"
+    val workoutType: String = "gym", // "gym", "calisthenics", "hybrid"
 )
 
 /** Score giornaliero per la consistency chart */
@@ -122,10 +124,6 @@ data class MonthlyBudget(
 data class MoneyData(
     val transactions: List<Transaction> = emptyList(),
     val budgets: List<MonthlyBudget> = emptyList(),
-    val categories: List<String> = listOf(
-        "Cibo", "Trasporti", "Intrattenimento", "Shopping",
-        "Salute", "Istruzione", "Abbonamenti", "Altro"
-    ),
 )
 
 // ── Tasks ──
@@ -135,8 +133,8 @@ data class Task(
     val id: String = "",
     val title: String = "",
     val description: String = "",
-    val dueDate: String = "",
-    val dueTime: String = "",
+    val dueDate: String = "", // yyyy-MM-dd
+    val dueTime: String = "", // HH:mm
     val completed: Boolean = false,
     val notifyEnabled: Boolean = true,
 )
@@ -154,27 +152,17 @@ data class Challenge(
     val title: String = "",
     val description: String = "",
     val durationDays: Int = 7,
-    val startDate: String = "",
     val completedDays: List<String> = emptyList(),
+    val startDate: String = "",
     val active: Boolean = false,
     val completed: Boolean = false,
+    val isCustom: Boolean = false,
 )
 
 @Serializable
 data class ChallengesData(
     val challenges: List<Challenge> = emptyList(),
-    val availableChallenges: List<Challenge> = listOf(
-        Challenge(id = "c1", title = "7 giorni senza social", description = "Non usare i social media per 7 giorni", durationDays = 7),
-        Challenge(id = "c2", title = "Meditazione 5 min/giorno", description = "Medita almeno 5 minuti ogni giorno per 14 giorni", durationDays = 14),
-        Challenge(id = "c3", title = "Leggi 20 pagine/giorno", description = "Leggi almeno 20 pagine ogni giorno per 30 giorni", durationDays = 30),
-        Challenge(id = "c4", title = "No junk food 7 giorni", description = "Evita il cibo spazzatura per 7 giorni", durationDays = 7),
-        Challenge(id = "c5", title = "Sveglia alle 6:00", description = "Svegliati alle 6:00 ogni mattina per 14 giorni", durationDays = 14),
-        Challenge(id = "c6", title = "Allenamento 30 giorni", description = "Allenati ogni giorno per 30 giorni", durationDays = 30),
-        Challenge(id = "c7", title = "Gratitudine quotidiana", description = "Scrivi 3 cose per cui sei grato ogni giorno", durationDays = 21),
-        Challenge(id = "c8", title = "Niente caffeina", description = "Niente caffè o bevande con caffeina per 7 giorni", durationDays = 7),
-        Challenge(id = "c9", title = "Cammina 10.000 passi", description = "Cammina almeno 10.000 passi al giorno per 14 giorni", durationDays = 14),
-        Challenge(id = "c10", title = "Doccia fredda", description = "Fai una doccia fredda ogni giorno per 30 giorni", durationDays = 30),
-    ),
+    val availableChallenges: List<Challenge> = emptyList(),
 )
 
 // ── Food ──
@@ -189,17 +177,18 @@ data class FoodItem(
     val fat: Float = 0f,
     val quantity: String = "1 porzione",
     val mealType: String = "Pranzo", // Colazione, Pranzo, Cena, Snack
-    val date: String = "",
+    val date: String = "", // yyyy-MM-dd
     val imageRecognized: Boolean = false,
+    val timeLogged: String = "",
 )
 
 @Serializable
 data class FoodData(
     val entries: List<FoodItem> = emptyList(),
-    val dailyCalorieTarget: Int = 2000,
-    val dailyProteinTarget: Float = 50f,
-    val dailyCarbsTarget: Float = 250f,
-    val dailyFatTarget: Float = 65f,
+    val dailyCalorieTarget: Int = 2200,
+    val dailyProteinTarget: Float = 120f,
+    val dailyCarbsTarget: Float = 260f,
+    val dailyFatTarget: Float = 70f,
 )
 
 // ── Wardrobe ──
@@ -208,10 +197,11 @@ data class FoodData(
 data class ClothingItem(
     val id: String = "",
     val name: String = "",
-    val category: String = "", // Top, Bottom, Shoes, Accessories, Outerwear
+    val category: String = "Top", // Top, Bottom, Outerwear, Shoes, Accessori
     val color: String = "",
-    val imagePath: String = "",
-    val seasons: List<String> = emptyList(), // Primavera, Estate, Autunno, Inverno
+    val seasons: List<String> = emptyList(),
+    val photoUri: String? = null,
+    val timesWorn: Int = 0,
 )
 
 @Serializable
@@ -219,7 +209,8 @@ data class Outfit(
     val id: String = "",
     val name: String = "",
     val itemIds: List<String> = emptyList(),
-    val saved: Boolean = false,
+    val weatherCondition: String = "",
+    val rating: Int = 5,
 )
 
 @Serializable
@@ -228,7 +219,7 @@ data class WishlistItem(
     val name: String = "",
     val description: String = "",
     val price: Float = 0f,
-    val purchased: Boolean = false,
+    val link: String = "",
 )
 
 @Serializable
@@ -248,93 +239,52 @@ data class WardrobeData(
     val suitcases: List<SuitcaseList> = emptyList(),
 )
 
-// ── Gym ──
-
-@Serializable
-data class Exercise(
-    val id: String = "",
-    val name: String = "",
-    val muscleGroup: String = "",
-    val equipment: String = "",
-    val description: String = "",
-)
+// ── Gym / OpenGym & Calisthenics ──
 
 @Serializable
 data class WorkoutSet(
     val reps: Int = 0,
-    val weight: Float = 0f,
+    val weightKg: Float = 0f,
     val completed: Boolean = false,
-)
+) {
+    val weight: Float get() = weightKg
+}
 
 @Serializable
 data class WorkoutExercise(
-    val exerciseId: String = "",
-    val exerciseName: String = "",
-    val sets: List<WorkoutSet> = emptyList(),
-    val restSeconds: Int = 90,
-)
-
-@Serializable
-data class Workout(
     val id: String = "",
     val name: String = "",
-    val exercises: List<WorkoutExercise> = emptyList(),
-    val date: String = "",
-    val durationMinutes: Int = 0,
-    val completed: Boolean = false,
-)
+    val sets: List<WorkoutSet> = emptyList(),
+    val restSeconds: Int = 90,
+    val isBodyweight: Boolean = false,
+) {
+    val exerciseName: String get() = name
+}
 
 @Serializable
 data class WorkoutTemplate(
     val id: String = "",
     val name: String = "",
     val exercises: List<WorkoutExercise> = emptyList(),
+    val type: String = "gym", // "gym" o "calisthenics"
+)
+
+@Serializable
+data class Workout(
+    val id: String = "",
+    val templateId: String = "",
+    val name: String = "",
+    val date: String = "",
+    val exercises: List<WorkoutExercise> = emptyList(),
+    val durationMinutes: Int = 0,
+    val completed: Boolean = true,
 )
 
 @Serializable
 data class GymData(
     val workouts: List<Workout> = emptyList(),
     val templates: List<WorkoutTemplate> = emptyList(),
-    val personalRecords: Map<String, Float> = emptyMap(), // exerciseId -> max weight
-)
-
-// ── Culture ──
-
-@Serializable
-data class Book(
-    val id: String = "",
-    val title: String = "",
-    val pdfPath: String = "",
-    val currentPage: Int = 0,
-    val totalPages: Int = 0,
-    val lastReadDate: String = "",
-    val readingTimeMinutes: Int = 0,
-)
-
-@Serializable
-data class QuizQuestion(
-    val id: String = "",
-    val category: String = "",
-    val question: String = "",
-    val options: List<String> = emptyList(),
-    val correctIndex: Int = 0,
-    val explanation: String = "",
-)
-
-@Serializable
-data class QuizResult(
-    val date: String = "",
-    val category: String = "",
-    val correctAnswers: Int = 0,
-    val totalQuestions: Int = 0,
-)
-
-@Serializable
-data class CultureData(
-    val books: List<Book> = emptyList(),
-    val quizResults: List<QuizResult> = emptyList(),
-    val dailyQuizCompleted: String = "", // data ultimo quiz
-    val ttsSpeed: Float = 1.0f,
+    val personalRecords: Map<String, Float> = emptyMap(),
 )
 
 // ── Social Blocker ──

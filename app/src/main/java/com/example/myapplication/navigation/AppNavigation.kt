@@ -9,7 +9,6 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.example.myapplication.challenges.ChallengesScreen
-import com.example.myapplication.culture.CultureScreen
 import com.example.myapplication.data.SettingsRepository
 import com.example.myapplication.food.FoodScreen
 import com.example.myapplication.gym.GymScreen
@@ -107,12 +106,6 @@ fun AppNavigation(
 
         composable(Screen.Gym.route) {
             GymScreen(
-                onBack = { navController.popBackStack() }
-            )
-        }
-
-        composable(Screen.Culture.route) {
-            CultureScreen(
                 onBack = { navController.popBackStack() }
             )
         }

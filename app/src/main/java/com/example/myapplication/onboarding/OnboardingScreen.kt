@@ -2,8 +2,10 @@ package com.example.myapplication.onboarding
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
@@ -17,7 +19,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -45,19 +46,21 @@ fun OnboardingScreen(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.fillMaxWidth()
         ) {
-            Spacer(modifier = Modifier.height(24.dp))
-            Text(
-                text = "Progress 1%",
-                style = MaterialTheme.typography.displayMedium,
-                color = Mint,
-                fontWeight = FontWeight.Bold
-            )
-            Text(
-                text = "Migliora ogni giorno dell'1%",
-                style = MaterialTheme.typography.bodyMedium,
-                color = TextSecondary,
-                modifier = Modifier.padding(top = 4.dp, bottom = 24.dp)
-            )
+            Spacer(modifier = Modifier.height(28.dp))
+
+            // Step Indicator dots
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                (0..3).forEach { index ->
+                    Box(
+                        modifier = Modifier
+                            .size(if (state.step == index) 24.dp else 8.dp, 8.dp)
+                            .clip(CircleShape)
+                            .background(if (state.step == index) Mint else CardBorderActive)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(28.dp))
 
             when (state.step) {
                 0 -> WelcomeStep()
@@ -65,10 +68,13 @@ fun OnboardingScreen(
                     name = state.name,
                     weight = state.weight,
                     height = state.height,
-                    age = state.age,
                     onUpdate = viewModel::updateProfile
                 )
-                2 -> ModulesStep(
+                2 -> WorkoutTypeStep(
+                    selectedType = state.workoutType,
+                    onSelect = viewModel::setWorkoutType
+                )
+                3 -> ModulesStep(
                     selectedModules = state.selectedModules,
                     onToggle = viewModel::toggleModule
                 )
@@ -86,7 +92,8 @@ fun OnboardingScreen(
                 OutlinedButton(
                     onClick = { viewModel.prevStep() },
                     colors = ButtonDefaults.outlinedButtonColors(contentColor = TextPrimary),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, CardBorder)
+                    border = androidx.compose.foundation.BorderStroke(1.dp, CardBorder),
+                    shape = RoundedCornerShape(14.dp)
                 ) {
                     Text("Indietro")
                 }
@@ -96,7 +103,7 @@ fun OnboardingScreen(
 
             Button(
                 onClick = {
-                    if (state.step < 2) {
+                    if (state.step < 3) {
                         viewModel.nextStep()
                     } else {
                         viewModel.finishOnboarding()
@@ -104,10 +111,10 @@ fun OnboardingScreen(
                     }
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = Mint, contentColor = DarkBackground),
-                shape = RoundedCornerShape(12.dp)
+                shape = RoundedCornerShape(14.dp)
             ) {
                 Text(
-                    text = if (state.step == 2) "Inizia il viaggio" else "Continua",
+                    text = if (state.step == 3) "Inizia il Viaggio 🚀" else "Continua →",
                     fontWeight = FontWeight.Bold
                 )
             }
@@ -118,20 +125,69 @@ fun OnboardingScreen(
 @Composable
 fun WelcomeStep() {
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        ProgressCard(modifier = Modifier.fillMaxWidth()) {
-            Text(
-                text = "Benvenuto in Progress 1%",
-                style = MaterialTheme.typography.titleLarge,
-                color = TextPrimary,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(12.dp))
-            Text(
-                text = "Tutto nell'app ruota attorno alla percentuale in Home: ogni giorno puoi progredire nelle varie aree della tua vita (Abitudini, Alimentazione, Palestra, Studio, Finanze, Task e Cultura).\n\nTutti i dati restano offline e privati sul tuo dispositivo.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = TextSecondary,
-                lineHeight = 22.sp
-            )
+        Box(
+            modifier = Modifier
+                .size(72.dp)
+                .clip(CircleShape)
+                .background(Mint.copy(alpha = 0.15f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Text("1%", color = Mint, fontWeight = FontWeight.ExtraBold, fontSize = 28.sp)
+        }
+
+        Spacer(modifier = Modifier.height(20.dp))
+
+        Text(
+            text = "Progress 1%",
+            style = MaterialTheme.typography.headlineLarge,
+            color = TextPrimary,
+            fontWeight = FontWeight.ExtraBold
+        )
+        Text(
+            text = "Migliora ogni giorno dell'1%",
+            style = MaterialTheme.typography.bodyLarge,
+            color = TextSecondary,
+            modifier = Modifier.padding(top = 4.dp, bottom = 28.dp)
+        )
+
+        ProgressCard(modifier = Modifier.fillMaxWidth(), cornerRadius = 20.dp) {
+            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                FeaturePoint(
+                    icon = Icons.Default.AllInclusive,
+                    title = "Principio Kaizen",
+                    desc = "La percentuale in Home riassume la tua costanza giornaliera"
+                )
+                FeaturePoint(
+                    icon = Icons.Default.CloudOff,
+                    title = "100% Offline & Privato",
+                    desc = "Tutti i dati restano protetti esclusivamente sul tuo dispositivo"
+                )
+                FeaturePoint(
+                    icon = Icons.Default.Tune,
+                    title = "Modulare & Su Misura",
+                    desc = "Attiva solo gli spazi che utilizzi realmente"
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun FeaturePoint(icon: ImageVector, title: String, desc: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(
+            modifier = Modifier
+                .size(38.dp)
+                .clip(RoundedCornerShape(10.dp))
+                .background(DarkSurfaceVariant),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, contentDescription = null, tint = Mint, modifier = Modifier.size(20.dp))
+        }
+        Spacer(Modifier.width(12.dp))
+        Column {
+            Text(title, color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Text(desc, color = TextSecondary, fontSize = 12.sp)
         }
     }
 }
@@ -141,45 +197,45 @@ fun ProfileStep(
     name: String,
     weight: String,
     height: String,
-    age: String,
     onUpdate: (String, String, String, String, String) -> Unit
 ) {
     var nameState by remember { mutableStateOf(name) }
     var weightState by remember { mutableStateOf(weight) }
     var heightState by remember { mutableStateOf(height) }
-    var ageState by remember { mutableStateOf(age) }
 
-    ProgressCard(modifier = Modifier.fillMaxWidth()) {
+    Column {
         Text(
             text = "Il tuo Profilo",
-            style = MaterialTheme.typography.titleLarge,
+            style = MaterialTheme.typography.headlineSmall,
             color = TextPrimary,
             fontWeight = FontWeight.Bold
         )
         Text(
-            text = "Questi parametri aiutano a calcolare i macro nutrizionali e a personalizzare gli allenamenti della Palestra.",
+            text = "Servono per personalizzare i macro e l'intensità degli allenamenti.",
             style = MaterialTheme.typography.bodySmall,
             color = TextSecondary,
-            modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)
+            modifier = Modifier.padding(top = 4.dp, bottom = 20.dp)
         )
 
         OutlinedTextField(
             value = nameState,
             onValueChange = {
                 nameState = it
-                onUpdate(nameState, weightState, heightState, ageState, "M")
+                onUpdate(nameState, weightState, heightState, "20", "M")
             },
-            label = { Text("Nome o Nickname") },
-            modifier = Modifier.fillMaxWidth(),
-            colors = customTextFieldColors()
+            label = { Text("Nome utente") },
+            colors = customTextFieldColors(),
+            modifier = Modifier.fillMaxWidth()
         )
+
         Spacer(modifier = Modifier.height(12.dp))
+
         Row(modifier = Modifier.fillMaxWidth()) {
             OutlinedTextField(
                 value = weightState,
                 onValueChange = {
                     weightState = it
-                    onUpdate(nameState, weightState, heightState, ageState, "M")
+                    onUpdate(nameState, weightState, heightState, "20", "M")
                 },
                 label = { Text("Peso (kg)") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -191,7 +247,7 @@ fun ProfileStep(
                 value = heightState,
                 onValueChange = {
                     heightState = it
-                    onUpdate(nameState, weightState, heightState, ageState, "M")
+                    onUpdate(nameState, weightState, heightState, "20", "M")
                 },
                 label = { Text("Altezza (cm)") },
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
@@ -199,18 +255,57 @@ fun ProfileStep(
                 colors = customTextFieldColors()
             )
         }
-        Spacer(modifier = Modifier.height(12.dp))
-        OutlinedTextField(
-            value = ageState,
-            onValueChange = {
-                ageState = it
-                onUpdate(nameState, weightState, heightState, ageState, "M")
-            },
-            label = { Text("Età") },
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            modifier = Modifier.fillMaxWidth(),
-            colors = customTextFieldColors()
+    }
+}
+
+@Composable
+fun WorkoutTypeStep(
+    selectedType: String,
+    onSelect: (String) -> Unit
+) {
+    Column {
+        Text(
+            text = "La tua Disciplina",
+            style = MaterialTheme.typography.headlineSmall,
+            color = TextPrimary,
+            fontWeight = FontWeight.Bold
         )
+        Text(
+            text = "Scegli il tuo stile di allenamento preferito.",
+            style = MaterialTheme.typography.bodySmall,
+            color = TextSecondary,
+            modifier = Modifier.padding(top = 4.dp, bottom = 20.dp)
+        )
+
+        val options = listOf(
+            Triple("palestra", "🏋️ Palestra (Pesi & Macchinari)", "Panca piana, squat, carichi progressivi e massimali PR"),
+            Triple("calisthenics", "🤸 Calisthenics (Corpo Libero)", "Trazioni, dip, piegamenti, skills alla sbarra e core"),
+            Triple("hybrid", "⚡ Ibrido (Pesi + Corpo Libero)", "Combina trazioni zavorrate, bilancieri e lavoro funzionale")
+        )
+
+        options.forEach { (typeKey, title, desc) ->
+            val isSelected = selectedType == typeKey
+            ProgressCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 6.dp)
+                    .clickable { onSelect(typeKey) },
+                cornerRadius = 16.dp
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    RadioButton(
+                        selected = isSelected,
+                        onClick = { onSelect(typeKey) },
+                        colors = RadioButtonDefaults.colors(selectedColor = Mint)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Column {
+                        Text(title, color = TextPrimary, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                        Text(desc, color = TextSecondary, fontSize = 12.sp)
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -221,49 +316,46 @@ fun ModulesStep(
 ) {
     Column {
         Text(
-            text = "Personalizza la tua esperienza",
-            style = MaterialTheme.typography.titleLarge,
+            text = "Moduli Attivi",
+            style = MaterialTheme.typography.headlineSmall,
             color = TextPrimary,
             fontWeight = FontWeight.Bold
         )
         Text(
-            text = "Puoi disattivare le funzioni che non ti interessano. Solo Tracker è obbligatorio. Potrai riattivarle in qualsiasi momento nelle impostazioni.",
+            text = "Attiva le funzioni che desideri. Tracker è obbligatorio.",
             style = MaterialTheme.typography.bodySmall,
             color = TextSecondary,
             modifier = Modifier.padding(top = 4.dp, bottom = 16.dp)
         )
 
         val modules = listOf(
-            Triple("tracker", "Tracker Abitudini (Obbligatorio)", "Goal di tipo quit e count con varie periodicità"),
-            Triple("food", "Food & Macro AI", "Traccia pasti, riconoscimento immagine e calcolo macro"),
-            Triple("gym", "Palestra (OpenGym)", "Allenamenti, serie, ripetizioni e carichi su misura"),
-            Triple("school", "School & Simulator", "Medie scolastiche, verifiche e simulatore voti"),
-            Triple("money", "Money & Budget", "Entrate, uscite e pianificazione budget mensile"),
-            Triple("tasks", "Tasks & Promemoria", "Attività giornaliere con notifiche e promemoria"),
-            Triple("challenges", "Challenges Offline", "Sfide offline per costruire nuove abitudini"),
-            Triple("culture", "Cultura & Audiolibri PDF", "Ascolto PDF in background e quiz Sophia"),
-            Triple("social_blocker", "Blocco Social Media", "Limita l'uso dei social e aumenta il punteggio"),
-            Triple("wardrobe", "Wardrobe & Outfit", "Armadio, meteo outfit e valigie (non influisce su %)")
+            Pair("tracker", "🎯 Tracker (Obbligatorio)"),
+            Pair("food", "🥗 Food & Macro AI"),
+            Pair("gym", "🏋️ Palestra / Calisthenics"),
+            Pair("school", "📚 School & Simulatore"),
+            Pair("money", "💰 Money & Budget"),
+            Pair("tasks", "📝 Tasks & Promemoria"),
+            Pair("challenges", "🏆 Challenges Offline"),
+            Pair("social_blocker", "📵 Blocco Social Media"),
+            Pair("wardrobe", "👔 Wardrobe & Outfit")
         )
 
-        modules.forEach { (id, title, desc) ->
+        modules.forEach { (id, title) ->
             val isTracker = id == "tracker"
             val isChecked = isTracker || selectedModules.contains(id)
 
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 4.dp)
+                    .padding(vertical = 3.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .background(DarkCard)
-                    .border(1.dp, if (isChecked) CardBorderActive.copy(alpha = 0.5f) else CardBorder, RoundedCornerShape(12.dp))
-                    .padding(12.dp),
+                    .border(1.dp, if (isChecked) CardBorderActive else CardBorder, RoundedCornerShape(12.dp))
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(text = title, style = MaterialTheme.typography.titleSmall, color = TextPrimary, fontWeight = FontWeight.SemiBold)
-                    Text(text = desc, style = MaterialTheme.typography.bodySmall, color = TextSecondary)
-                }
+                Text(text = title, style = MaterialTheme.typography.bodyMedium, color = TextPrimary, fontWeight = FontWeight.Medium)
                 Switch(
                     checked = isChecked,
                     onCheckedChange = { onToggle(id) },

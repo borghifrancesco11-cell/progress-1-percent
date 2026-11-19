@@ -2,37 +2,47 @@ package com.example.myapplication.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
-// ── Palette originale e minimal Progress 1% ──
-// Accenti Verdi
-val Mint = Color(0xFF4ADE80)           // Verde menta principale dell'app
-val MintAccent = Color(0xFF5DE49B)     // Accento brillante per percentuali
-val MintLight = Color(0xFF5DE49B)      // Alias per compatibilità
-val MintDark = Color(0xFF1E5E3A)       // Per elementi secondari o sfumature
+// ── Palette Progress 1% — Stile Android 17 Material Expressive & Pure OLED ──
 
-// Backgrounds & Surfaces (toni dark profondi, minimalisti e puliti)
-val DarkBackground = Color(0xFF0C0E12) // Nero profondo originale
-val DarkCard = Color(0xFF141720)       // Superficie card morbida
-val DarkSurface = Color(0xFF141720)    // Alias superficie dialogs e cards
-val DarkSurfaceVariant = Color(0xFF1C202B) // Card secondarie e campi
-val DarkSurfaceLight = Color(0xFF252B3A)
+// Accenti Verde Menta Elettrico
+val Mint = Color(0xFF22C55E)           // Verde menta Material Expressive
+val MintAccent = Color(0xFF4ADE80)     // Accento brillante per percentuali
+val MintLight = Color(0xFF4ADE80)      // Alias per retrocompatibilità
+val MintDark = Color(0xFF15803D)       // Verde scuro per contrasti
 
-// Bordi tenui ed eleganti (senza linee verdi fluorescenti ovunque)
-val CardBorder = Color(0xFF1E232F)
-val CardBorderActive = Color(0xFF2C3445)
+// OLED Pure Black (Nero assoluto per display AMOLED/OLED)
+val DarkBackground = Color(0xFF000000) // Nero OLED 100% puro
+val DarkCard = Color(0xFF0B0D13)       // Superficie card profonda
+val DarkSurface = Color(0xFF0B0D13)    // Superficie dialogs e bottom sheets
+val DarkSurfaceVariant = Color(0xFF131722) // Campi input e chip
+val DarkSurfaceLight = Color(0xFF1B202E)
 
-// Testi
-val TextPrimary = Color(0xFFF3F4F6)    // Bianco caldo ad alta leggibilità
-val TextSecondary = Color(0xFF8E97A6)  // Grigio per etichette e sottotitoli
-val TextTertiary = Color(0xFF545C6C)   // Grigio scuro per dettagli minori
+// Bordi tenui ed eleganti (senza bordi spessi o neon)
+val CardBorder = Color(0xFF171B26)
+val CardBorderActive = Color(0xFF232A3B)
 
-// Status colors
-val ScoreGreen = Color(0xFF4ADE80)
+// Testi Dark Theme
+val TextPrimary = Color(0xFFF8FAFC)    // Bianco puro ad alto contrasto
+val TextSecondary = Color(0xFF8692A6)  // Grigio neutro per descrizioni brevi
+val TextTertiary = Color(0xFF475569)   // Grigio tenue per dettagli minimi
+
+// Tema Chiaro (Clean Light Mode)
+val LightBackground = Color(0xFFF8FAFC)
+val LightCard = Color(0xFFFFFFFF)
+val LightSurfaceVariant = Color(0xFFF1F5F9)
+val LightBorder = Color(0xFFE2E8F0)
+val LightTextPrimary = Color(0xFF0F172A)
+val LightTextSecondary = Color(0xFF64748B)
+
+// Score status colors
+val ScoreGreen = Color(0xFF22C55E)
 val ScoreYellow = Color(0xFFFBBF24)
-val ScoreRed = Color(0xFFF87171)
+val ScoreRed = Color(0xFFEF4444)
 
-// Colori categorie tenui
-val CategoryBlue = Color(0xFF60A5FA)
-val CategoryPurple = Color(0xFFA78BFA)
-val CategoryOrange = Color(0xFFFB923C)
-val CategoryPink = Color(0xFFF472B6)
-val CategoryCyan = Color(0xFF22D3EE)
+// Categorie vibranti Android 17 Expressive
+val CategoryBlue = Color(0xFF3B82F6)
+val CategoryPurple = Color(0xFF8B5CF6)
+val CategoryOrange = Color(0xFFF97316)
+val CategoryPink = Color(0xFFEC4899)
+val CategoryCyan = Color(0xFF06B6D4)
+val CategoryAmber = Color(0xFFF59E0B)

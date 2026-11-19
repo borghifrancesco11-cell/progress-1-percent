@@ -4,6 +4,7 @@ import android.app.Application
 import android.graphics.Bitmap
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.myapplication.BuildConfig
 import com.example.myapplication.data.JsonStorage
 import com.example.myapplication.data.model.FoodData
 import com.example.myapplication.data.model.FoodItem
@@ -49,6 +50,10 @@ class FoodViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun getToday(): String = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
+    fun getCurrentTime(): String = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date())
+
+    fun getImageModelName(): String = classifier.modelEngineName
+    fun getMacroModelName(): String = if (BuildConfig.GEMINI_API_KEY.isNotBlank()) "Google Gemini 1.5 Flash (Cloud)" else "Database Nutrizionale Offline (Zero Rete)"
 
     fun analyzeFoodImage(bitmap: Bitmap) {
         _uiState.value = FoodUiState.ProcessingImage
@@ -78,10 +83,18 @@ class FoodViewModel(application: Application) : AndroidViewModel(application) {
             quantity = quantity,
             mealType = mealType,
             date = getToday(),
-            imageRecognized = isAi
+            imageRecognized = isAi,
+            timeLogged = getCurrentTime()
         )
         saveData(_data.value.copy(entries = _data.value.entries + newItem))
         resetUiState()
+    }
+
+    fun updateFoodItem(updatedItem: FoodItem) {
+        val list = _data.value.entries.map {
+            if (it.id == updatedItem.id) updatedItem else it
+        }
+        saveData(_data.value.copy(entries = list))
     }
 
     fun deleteFoodItem(id: String) {

@@ -24,26 +24,8 @@ class TrackerViewModel(application: Application) : AndroidViewModel(application)
 
     private fun loadData(): TrackerData {
         return JsonStorage.load<TrackerData>(context, "tracker_data") ?: TrackerData(
-            goals = listOf(
-                TrackerGoal(
-                    id = UUID.randomUUID().toString(),
-                    name = "Non fumare",
-                    type = GoalType.QUIT,
-                    period = GoalPeriod.WEEK,
-                    targetCount = 0,
-                    icon = "🚭",
-                    createdDate = getTodayDate()
-                ),
-                TrackerGoal(
-                    id = UUID.randomUUID().toString(),
-                    name = "Bevi 2L d'acqua",
-                    type = GoalType.COUNT,
-                    period = GoalPeriod.WEEK,
-                    targetCount = 7,
-                    icon = "💧",
-                    createdDate = getTodayDate()
-                )
-            )
+            goals = emptyList(),
+            entries = emptyList()
         )
     }
 

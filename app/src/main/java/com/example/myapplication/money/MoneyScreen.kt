@@ -167,7 +167,7 @@ fun MoneyScreen(
 
     if (showAddDialog) {
         AddTransactionDialog(
-            categories = data.categories,
+            categories = listOf("Cibo", "Trasporti", "Spesa", "Svago", "Altro"),
             onDismiss = { showAddDialog = false },
             onConfirm = { amount, type, cat, desc ->
                 viewModel.addTransaction(amount, type, cat, desc)

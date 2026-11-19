@@ -20,25 +20,9 @@ class WardrobeViewModel(application: Application) : AndroidViewModel(application
 
     private fun loadData(): WardrobeData {
         return JsonStorage.load<WardrobeData>(context, "wardrobe_data") ?: WardrobeData(
-            clothes = listOf(
-                ClothingItem(id = "c1", name = "T-Shirt Bianca", category = "Top", color = "Bianco", seasons = listOf("Primavera", "Estate")),
-                ClothingItem(id = "c2", name = "Jeans Slim Blu", category = "Bottom", color = "Blu", seasons = listOf("Primavera", "Autunno", "Inverno")),
-                ClothingItem(id = "c3", name = "Sneakers Bianche", category = "Shoes", color = "Bianco", seasons = listOf("Primavera", "Estate", "Autunno")),
-                ClothingItem(id = "c4", name = "Felpa con Cappuccio Nera", category = "Top", color = "Nero", seasons = listOf("Autunno", "Inverno")),
-                ClothingItem(id = "c5", name = "Giacca a Vento", category = "Outerwear", color = "Verde", seasons = listOf("Autunno", "Primavera"))
-            ),
-            wishlist = listOf(
-                WishlistItem(id = "w1", name = "Giacca di Pelle", description = "Taglia M nera", price = 120f)
-            ),
-            suitcases = listOf(
-                SuitcaseList(
-                    id = "s1",
-                    name = "Weekend a Milano",
-                    destination = "Milano",
-                    itemIds = listOf("c1", "c2", "c3"),
-                    packed = mapOf("c1" to true, "c2" to false, "c3" to false)
-                )
-            )
+            clothes = emptyList(),
+            wishlist = emptyList(),
+            suitcases = emptyList()
         )
     }
 
@@ -87,8 +71,7 @@ class WardrobeViewModel(application: Application) : AndroidViewModel(application
         val outfit = Outfit(
             id = UUID.randomUUID().toString(),
             name = name,
-            itemIds = items.map { it.id },
-            saved = true
+            itemIds = items.map { it.id }
         )
         saveData(_data.value.copy(outfits = _data.value.outfits + outfit))
     }

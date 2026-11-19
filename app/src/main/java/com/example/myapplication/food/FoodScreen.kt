@@ -4,19 +4,27 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -42,6 +50,8 @@ fun FoodScreen(
     val context = LocalContext.current
 
     var showManualDialog by remember { mutableStateOf(false) }
+    var selectedItemForDetail by remember { mutableStateOf<FoodItem?>(null) }
+    var showModelsInfo by remember { mutableStateOf(false) }
 
     val todayEntries = viewModel.getTodayEntries()
     val totalCalories = viewModel.getTodayCalories()
@@ -50,7 +60,6 @@ fun FoodScreen(
     val totalFat = viewModel.getTodayFat()
     val loggedMeals = viewModel.getLoggedMealsCount()
 
-    // Image Picker Launcher per AI Photo
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
@@ -83,13 +92,12 @@ fun FoodScreen(
             ModuleHeader(
                 categoryLabel = "AI Nutrition & Food",
                 title = "Food",
-                subtitle = "Riconoscimento intelligente del cibo e calcolo macro",
                 onBack = onBack,
                 actions = {
                     Button(
                         onClick = { imagePickerLauncher.launch("image/*") },
                         colors = ButtonDefaults.buttonColors(containerColor = Mint, contentColor = DarkBackground),
-                        shape = RoundedCornerShape(12.dp)
+                        shape = RoundedCornerShape(14.dp)
                     ) {
                         Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(18.dp))
                         Spacer(Modifier.width(6.dp))
@@ -98,83 +106,119 @@ fun FoodScreen(
                 }
             )
 
-            // Card Calorie e Macro
-            ProgressCard(
+            // Pill per verificare i 2 modelli AI (Image Recognition + Macro Calculator)
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(vertical = 4.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(DarkSurfaceVariant)
+                    .border(1.dp, CardBorder, RoundedCornerShape(12.dp))
+                    .clickable { showModelsInfo = !showModelsInfo }
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Default.Memory, contentDescription = null, tint = Mint, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        text = "Verifica Modelli AI Integrati",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = TextPrimary,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                Text(
+                    text = if (showModelsInfo) "Chiudi ▲" else "Dettagli ▼",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Mint
+                )
+            }
+
+            AnimatedVisibility(visible = showModelsInfo) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 6.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(DarkCard)
+                        .border(1.dp, CardBorder, RoundedCornerShape(12.dp))
+                        .padding(12.dp)
+                ) {
+                    Text("1. Vision Model: ${viewModel.getImageModelName()}", color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Text("   (Riconoscimento su 101 classi alimentari con pesi Swin-Transformer FP32)", color = TextSecondary, fontSize = 11.sp)
+                    Spacer(Modifier.height(4.dp))
+                    Text("2. Macro Model: ${viewModel.getMacroModelName()}", color = TextPrimary, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                    Text("   (Stima precisa nutrienti per porzione: calorie, proteine, carboidrati, grassi)", color = TextSecondary, fontSize = 11.sp)
+                }
+            }
+
+            Spacer(Modifier.height(10.dp))
+
+            // Card Macro Giornalieri
+            ProgressCard(modifier = Modifier.fillMaxWidth()) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column {
-                        Text("Calorie Oggi", style = MaterialTheme.typography.titleSmall, color = TextSecondary)
-                        Spacer(Modifier.height(4.dp))
+                        Text("Calorie Oggi", style = MaterialTheme.typography.labelMedium, color = TextSecondary)
+                        Spacer(Modifier.height(2.dp))
                         Text(
                             text = "$totalCalories kcal",
-                            style = MaterialTheme.typography.displayMedium,
+                            style = MaterialTheme.typography.headlineMedium,
                             color = Mint,
                             fontWeight = FontWeight.Bold
                         )
-                        Spacer(Modifier.height(4.dp))
                         Text(
-                            text = "Target: ${data.dailyCalorieTarget} kcal • $loggedMeals/3 pasti registrati",
+                            text = "Target: ${data.dailyCalorieTarget} kcal • $loggedMeals pasti",
                             style = MaterialTheme.typography.bodySmall,
                             color = TextTertiary
                         )
                     }
                 }
 
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(12.dp))
 
-                LabeledProgressBar(
-                    label = "Proteine",
-                    value = totalProtein,
-                    maxValue = data.dailyProteinTarget,
-                    color = CategoryBlue
-                )
-                Spacer(Modifier.height(8.dp))
-                LabeledProgressBar(
-                    label = "Carboidrati",
-                    value = totalCarbs,
-                    maxValue = data.dailyCarbsTarget,
-                    color = CategoryOrange
-                )
-                Spacer(Modifier.height(8.dp))
-                LabeledProgressBar(
-                    label = "Grassi",
-                    value = totalFat,
-                    maxValue = data.dailyFatTarget,
-                    color = CategoryPink
-                )
-            }
-
-            if (uiState is FoodUiState.ProcessingImage) {
-                ProgressCard(modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        CircularProgressIndicator(color = Mint, modifier = Modifier.size(24.dp))
-                        Spacer(Modifier.width(12.dp))
-                        Text("Analisi cibo in corso...", color = TextPrimary)
-                    }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    LabeledProgressBar(
+                        label = "Proteine",
+                        value = totalProtein,
+                        maxValue = data.dailyProteinTarget,
+                        modifier = Modifier.weight(1f),
+                        color = CategoryBlue
+                    )
+                    LabeledProgressBar(
+                        label = "Carboidrati",
+                        value = totalCarbs,
+                        maxValue = data.dailyCarbsTarget,
+                        modifier = Modifier.weight(1f),
+                        color = ScoreYellow
+                    )
+                    LabeledProgressBar(
+                        label = "Grassi",
+                        value = totalFat,
+                        maxValue = data.dailyFatTarget,
+                        modifier = Modifier.weight(1f),
+                        color = CategoryPink
+                    )
                 }
             }
 
             Spacer(Modifier.height(14.dp))
+
             Text(
                 text = "PASTI REGISTRATI",
                 style = MaterialTheme.typography.labelSmall,
                 color = TextSecondary,
                 fontWeight = FontWeight.Bold,
-                letterSpacing = 1.sp
+                letterSpacing = 1.sp,
+                modifier = Modifier.padding(bottom = 6.dp)
             )
-
-            Spacer(Modifier.height(8.dp))
 
             if (todayEntries.isEmpty()) {
                 Box(
@@ -184,9 +228,10 @@ fun FoodScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        "Nessun alimento registrato oggi.\nScatta una foto o tocca + per inserire!",
+                        "Nessun alimento registrato oggi.\nScatta una foto con AI Scan o tocca + per inserire!",
                         color = TextSecondary,
-                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        fontSize = 13.sp
                     )
                 }
             } else {
@@ -197,12 +242,29 @@ fun FoodScreen(
                     items(todayEntries, key = { it.id }) { item ->
                         FoodItemRow(
                             item = item,
+                            onClick = { selectedItemForDetail = item },
                             onDelete = { viewModel.deleteFoodItem(item.id) }
                         )
                     }
                 }
             }
         }
+    }
+
+    // Modal Dettaglio / Modifica Pasto Cliccato
+    selectedItemForDetail?.let { item ->
+        FoodDetailDialog(
+            item = item,
+            onDismiss = { selectedItemForDetail = null },
+            onSave = { updated ->
+                viewModel.updateFoodItem(updated)
+                selectedItemForDetail = null
+            },
+            onDelete = {
+                viewModel.deleteFoodItem(item.id)
+                selectedItemForDetail = null
+            }
+        )
     }
 
     (uiState as? FoodUiState.RecognitionDone)?.let { recognized ->
@@ -230,9 +292,13 @@ fun FoodScreen(
 @Composable
 fun FoodItemRow(
     item: FoodItem,
+    onClick: () -> Unit,
     onDelete: () -> Unit
 ) {
-    ProgressCard(modifier = Modifier.fillMaxWidth()) {
+    ProgressCard(
+        modifier = Modifier.fillMaxWidth(),
+        onClick = onClick
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -247,11 +313,16 @@ fun FoodItemRow(
                         fontWeight = FontWeight.SemiBold
                     )
                     if (item.imageRecognized) {
+                        Spacer(Modifier.width(6.dp))
                         Text(
-                            text = " (AI)",
-                            style = MaterialTheme.typography.bodySmall,
+                            text = "AI",
+                            fontSize = 10.sp,
                             color = Mint,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(Mint.copy(alpha = 0.15f))
+                                .padding(horizontal = 5.dp, vertical = 2.dp)
                         )
                     }
                 }
@@ -261,8 +332,8 @@ fun FoodItemRow(
                     color = TextSecondary
                 )
                 Text(
-                    text = "${item.calories} kcal | P: ${item.protein.toInt()}g | C: ${item.carbs.toInt()}g | F: ${item.fat.toInt()}g",
-                    style = MaterialTheme.typography.bodySmall,
+                    text = "${item.calories} kcal  |  P: ${item.protein.toInt()}g  C: ${item.carbs.toInt()}g  F: ${item.fat.toInt()}g",
+                    style = MaterialTheme.typography.labelSmall,
                     color = TextTertiary,
                     modifier = Modifier.padding(top = 2.dp)
                 )
@@ -275,25 +346,38 @@ fun FoodItemRow(
 }
 
 @Composable
-fun ConfirmAiFoodDialog(
-    foodName: String,
-    macros: MacroInfo,
+fun FoodDetailDialog(
+    item: FoodItem,
     onDismiss: () -> Unit,
-    onConfirm: (String, String, Int, Float, Float, Float, String) -> Unit
+    onSave: (FoodItem) -> Unit,
+    onDelete: () -> Unit
 ) {
-    var name by remember { mutableStateOf(foodName) }
-    var mealType by remember { mutableStateOf("Pranzo") }
-    var caloriesText by remember { mutableStateOf(macros.calories.toString()) }
-    var proteinText by remember { mutableStateOf(macros.protein.toInt().toString()) }
-    var carbsText by remember { mutableStateOf(macros.carbs.toInt().toString()) }
-    var fatText by remember { mutableStateOf(macros.fat.toInt().toString()) }
-    var quantity by remember { mutableStateOf(macros.portion) }
+    var name by remember { mutableStateOf(item.name) }
+    var calories by remember { mutableStateOf(item.calories.toString()) }
+    var protein by remember { mutableStateOf(item.protein.toInt().toString()) }
+    var carbs by remember { mutableStateOf(item.carbs.toInt().toString()) }
+    var fat by remember { mutableStateOf(item.fat.toInt().toString()) }
+    var quantity by remember { mutableStateOf(item.quantity) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = DarkCard,
         title = {
-            Text("Cibo Riconosciuto da AI", color = Mint, fontWeight = FontWeight.Bold)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Dettaglio Pasto",
+                    color = TextPrimary,
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                IconButton(onClick = onDelete) {
+                    Icon(Icons.Default.Delete, contentDescription = "Elimina", tint = ScoreRed)
+                }
+            }
         },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -304,55 +388,43 @@ fun ConfirmAiFoodDialog(
                     colors = customTextFieldColors(),
                     modifier = Modifier.fillMaxWidth()
                 )
-                Text("Pasto:", style = MaterialTheme.typography.bodySmall, color = TextSecondary)
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    listOf("Colazione", "Pranzo", "Cena", "Snack").forEach { type ->
-                        SelectableChip(
-                            label = type,
-                            selected = mealType == type,
-                            onClick = { mealType = type }
-                        )
-                    }
-                }
                 OutlinedTextField(
                     value = quantity,
                     onValueChange = { quantity = it },
-                    label = { Text("Porzione stimata") },
+                    label = { Text("Porzione (es. 100g, 1 piatto)") },
                     colors = customTextFieldColors(),
                     modifier = Modifier.fillMaxWidth()
                 )
-                Row(modifier = Modifier.fillMaxWidth()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
-                        value = caloriesText,
-                        onValueChange = { caloriesText = it },
+                        value = calories,
+                        onValueChange = { calories = it },
                         label = { Text("Calorie (kcal)") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         colors = customTextFieldColors(),
                         modifier = Modifier.weight(1f)
                     )
-                    Spacer(Modifier.width(8.dp))
                     OutlinedTextField(
-                        value = proteinText,
-                        onValueChange = { proteinText = it },
+                        value = protein,
+                        onValueChange = { protein = it },
                         label = { Text("Proteine (g)") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         colors = customTextFieldColors(),
                         modifier = Modifier.weight(1f)
                     )
                 }
-                Row(modifier = Modifier.fillMaxWidth()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
-                        value = carbsText,
-                        onValueChange = { carbsText = it },
+                        value = carbs,
+                        onValueChange = { carbs = it },
                         label = { Text("Carboidrati (g)") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         colors = customTextFieldColors(),
                         modifier = Modifier.weight(1f)
                     )
-                    Spacer(Modifier.width(8.dp))
                     OutlinedTextField(
-                        value = fatText,
-                        onValueChange = { fatText = it },
+                        value = fat,
+                        onValueChange = { fat = it },
                         label = { Text("Grassi (g)") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         colors = customTextFieldColors(),
@@ -364,19 +436,134 @@ fun ConfirmAiFoodDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    onConfirm(
-                        name.trim(),
-                        mealType,
-                        caloriesText.toIntOrNull() ?: macros.calories,
-                        proteinText.toFloatOrNull() ?: macros.protein,
-                        carbsText.toFloatOrNull() ?: macros.carbs,
-                        fatText.toFloatOrNull() ?: macros.fat,
-                        quantity.trim()
+                    val updated = item.copy(
+                        name = name.trim(),
+                        quantity = quantity.trim(),
+                        calories = calories.toIntOrNull() ?: item.calories,
+                        protein = protein.toFloatOrNull() ?: item.protein,
+                        carbs = carbs.toFloatOrNull() ?: item.carbs,
+                        fat = fat.toFloatOrNull() ?: item.fat
                     )
+                    onSave(updated)
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = Mint, contentColor = DarkBackground)
             ) {
-                Text("Conferma e Salva")
+                Text("Salva Modifiche")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Chiudi", color = TextSecondary) }
+        }
+    )
+}
+
+@Composable
+fun ConfirmAiFoodDialog(
+    foodName: String,
+    macros: MacroInfo,
+    onDismiss: () -> Unit,
+    onConfirm: (String, String, Int, Float, Float, Float, String) -> Unit
+) {
+    var name by remember { mutableStateOf(foodName) }
+    var selectedMealType by remember { mutableStateOf("Pranzo") }
+    var calories by remember { mutableStateOf(macros.calories.toString()) }
+    var protein by remember { mutableStateOf(macros.protein.toInt().toString()) }
+    var carbs by remember { mutableStateOf(macros.carbs.toInt().toString()) }
+    var fat by remember { mutableStateOf(macros.fat.toInt().toString()) }
+    var quantity by remember { mutableStateOf(macros.portion) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = DarkCard,
+        title = {
+            Column {
+                Text("Cibo Riconosciuto!", color = Mint, fontWeight = FontWeight.Bold)
+                Text("Fonte: ${macros.sourceEngine}", color = TextSecondary, fontSize = 11.sp)
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Nome alimento") },
+                    colors = customTextFieldColors(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    listOf("Colazione", "Pranzo", "Cena", "Snack").forEach { type ->
+                        SelectableChip(
+                            label = type,
+                            selected = selectedMealType == type,
+                            onClick = { selectedMealType = type },
+                            modifier = Modifier.weight(1f)
+                        )
+                    }
+                }
+
+                OutlinedTextField(
+                    value = quantity,
+                    onValueChange = { quantity = it },
+                    label = { Text("Porzione stimata") },
+                    colors = customTextFieldColors(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = calories,
+                        onValueChange = { calories = it },
+                        label = { Text("Calorie") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        colors = customTextFieldColors(),
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = protein,
+                        onValueChange = { protein = it },
+                        label = { Text("Proteine (g)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        colors = customTextFieldColors(),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = carbs,
+                        onValueChange = { carbs = it },
+                        label = { Text("Carboidrati (g)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        colors = customTextFieldColors(),
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = fat,
+                        onValueChange = { fat = it },
+                        label = { Text("Grassi (g)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        colors = customTextFieldColors(),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val cal = calories.toIntOrNull() ?: macros.calories
+                    val p = protein.toFloatOrNull() ?: macros.protein
+                    val c = carbs.toFloatOrNull() ?: macros.carbs
+                    val f = fat.toFloatOrNull() ?: macros.fat
+                    onConfirm(name, selectedMealType, cal, p, c, f, quantity)
+                },
+                colors = ButtonDefaults.buttonColors(containerColor = Mint, contentColor = DarkBackground)
+            ) {
+                Text("Registra Pasto")
             }
         },
         dismissButton = {
@@ -391,56 +578,81 @@ fun AddManualFoodDialog(
     onConfirm: (String, String, Int, Float, Float, Float, String) -> Unit
 ) {
     var name by remember { mutableStateOf("") }
-    var mealType by remember { mutableStateOf("Pranzo") }
-    var caloriesText by remember { mutableStateOf("300") }
-    var proteinText by remember { mutableStateOf("15") }
-    var carbsText by remember { mutableStateOf("40") }
-    var fatText by remember { mutableStateOf("10") }
+    var selectedMealType by remember { mutableStateOf("Pranzo") }
+    var calories by remember { mutableStateOf("") }
+    var protein by remember { mutableStateOf("") }
+    var carbs by remember { mutableStateOf("") }
+    var fat by remember { mutableStateOf("") }
     var quantity by remember { mutableStateOf("1 porzione") }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = DarkCard,
-        title = { Text("Inserisci Alimento", color = TextPrimary) },
+        title = { Text("Aggiungi Alimento", color = TextPrimary) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = name,
-                    onValueChange = {
-                        name = it
-                        val estimate = MacroCalculator.estimateOffline(it)
-                        caloriesText = estimate.calories.toString()
-                        proteinText = estimate.protein.toInt().toString()
-                        carbsText = estimate.carbs.toInt().toString()
-                        fatText = estimate.fat.toInt().toString()
-                    },
-                    label = { Text("Nome alimento (es. Risotto)") },
+                    onValueChange = { name = it },
+                    label = { Text("Nome alimento") },
                     colors = customTextFieldColors(),
                     modifier = Modifier.fillMaxWidth()
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
                     listOf("Colazione", "Pranzo", "Cena", "Snack").forEach { type ->
                         SelectableChip(
                             label = type,
-                            selected = mealType == type,
-                            onClick = { mealType = type }
+                            selected = selectedMealType == type,
+                            onClick = { selectedMealType = type },
+                            modifier = Modifier.weight(1f)
                         )
                     }
                 }
-                Row(modifier = Modifier.fillMaxWidth()) {
+
+                OutlinedTextField(
+                    value = quantity,
+                    onValueChange = { quantity = it },
+                    label = { Text("Porzione (es. 100g, 1 piatto)") },
+                    colors = customTextFieldColors(),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(
-                        value = caloriesText,
-                        onValueChange = { caloriesText = it },
+                        value = calories,
+                        onValueChange = { calories = it },
                         label = { Text("Calorie (kcal)") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         colors = customTextFieldColors(),
                         modifier = Modifier.weight(1f)
                     )
-                    Spacer(Modifier.width(8.dp))
                     OutlinedTextField(
-                        value = proteinText,
-                        onValueChange = { proteinText = it },
+                        value = protein,
+                        onValueChange = { protein = it },
                         label = { Text("Proteine (g)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        colors = customTextFieldColors(),
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = carbs,
+                        onValueChange = { carbs = it },
+                        label = { Text("Carboidrati (g)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        colors = customTextFieldColors(),
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedTextField(
+                        value = fat,
+                        onValueChange = { fat = it },
+                        label = { Text("Grassi (g)") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         colors = customTextFieldColors(),
                         modifier = Modifier.weight(1f)
@@ -452,20 +664,16 @@ fun AddManualFoodDialog(
             Button(
                 onClick = {
                     if (name.isNotBlank()) {
-                        onConfirm(
-                            name.trim(),
-                            mealType,
-                            caloriesText.toIntOrNull() ?: 300,
-                            proteinText.toFloatOrNull() ?: 15f,
-                            carbsText.toFloatOrNull() ?: 40f,
-                            fatText.toFloatOrNull() ?: 10f,
-                            quantity.trim()
-                        )
+                        val cal = calories.toIntOrNull() ?: 300
+                        val p = protein.toFloatOrNull() ?: 15f
+                        val c = carbs.toFloatOrNull() ?: 35f
+                        val f = fat.toFloatOrNull() ?: 10f
+                        onConfirm(name.trim(), selectedMealType, cal, p, c, f, quantity.trim())
                     }
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = Mint, contentColor = DarkBackground)
             ) {
-                Text("Salva")
+                Text("Aggiungi")
             }
         },
         dismissButton = {

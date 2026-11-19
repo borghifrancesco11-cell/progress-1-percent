@@ -18,9 +18,25 @@ class ChallengesViewModel(application: Application) : AndroidViewModel(applicati
     private val _data = MutableStateFlow(loadData())
     val data: StateFlow<ChallengesData> = _data.asStateFlow()
 
+    private val defaultPresets = listOf(
+        Challenge("preset_1", "Sveglia alle 6:00", "Alzati presto ogni giorno e inizia subito con energia", 7),
+        Challenge("preset_2", "No Zuccheri Aggiunti", "Evita bibite zuccherate, snack industriali e dolci", 14),
+        Challenge("preset_3", "100 Piegamenti al giorno", "Suddivisi in serie durante tutta la giornata", 30),
+        Challenge("preset_4", "Lettura Quotidiana", "Leggi almeno 15 pagine di un libro al giorno", 21),
+        Challenge("preset_5", "Doccia Fredda", "Termina ogni doccia con 2 minuti di acqua ghiacciata", 14),
+        Challenge("preset_6", "Detox Schermi", "Nessun cellulare la prima e l'ultima ora del giorno", 7)
+    )
+
     private fun loadData(): ChallengesData {
-        val initial = ChallengesData()
-        return JsonStorage.load<ChallengesData>(context, "challenges_data") ?: initial
+        val loaded = JsonStorage.load<ChallengesData>(context, "challenges_data")
+        return if (loaded == null || loaded.availableChallenges.isEmpty()) {
+            ChallengesData(
+                challenges = loaded?.challenges ?: emptyList(),
+                availableChallenges = defaultPresets
+            )
+        } else {
+            loaded
+        }
     }
 
     private fun saveData(newData: ChallengesData) {

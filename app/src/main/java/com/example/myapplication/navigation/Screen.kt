@@ -17,6 +17,5 @@ sealed class Screen(val route: String) {
 
     // Nuovi moduli
     data object Gym : Screen("gym")
-    data object Culture : Screen("culture")
     data object SocialBlocker : Screen("social_blocker")
 }

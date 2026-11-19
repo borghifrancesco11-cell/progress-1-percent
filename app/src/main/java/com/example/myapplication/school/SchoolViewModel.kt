@@ -22,32 +22,8 @@ class SchoolViewModel(application: Application) : AndroidViewModel(application) 
 
     private fun loadData(): SchoolData {
         return JsonStorage.load<SchoolData>(context, "school_data") ?: SchoolData(
-            subjects = listOf(
-                Subject(
-                    id = "math",
-                    name = "Matematica",
-                    grades = listOf(Grade(value = 7.5f, date = "2026-11-01", description = "Test derivate"))
-                ),
-                Subject(
-                    id = "history",
-                    name = "Storia",
-                    grades = listOf(Grade(value = 8.0f, date = "2026-11-05", description = "Interrogazione"))
-                ),
-                Subject(
-                    id = "english",
-                    name = "Inglese",
-                    grades = listOf(Grade(value = 6.5f, date = "2026-11-10", description = "Writing test"))
-                )
-            ),
-            exams = listOf(
-                Exam(
-                    id = UUID.randomUUID().toString(),
-                    subjectId = "math",
-                    subjectName = "Matematica",
-                    date = "2026-11-25",
-                    description = "Verifica integrali"
-                )
-            ),
+            subjects = emptyList(),
+            exams = emptyList(),
             targetAverage = 7.0f
         )
     }

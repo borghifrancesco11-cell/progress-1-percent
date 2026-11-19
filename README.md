@@ -58,18 +58,13 @@ Tutti i dati vengono salvati **100% offline in locale (file JSON)** sul disposit
 - Check-in giornaliero e tracciamento progresso giorni.
 - **Influenza la percentuale in Home**.
 
-### 8. 📖 Cultura, Audiolibri PDF & Quiz Sophia
-- **Lettore PDF & TTS in Background**: carica qualsiasi PDF e ascoltalo con la sintesi vocale (Text-To-Speech) Android anche a schermo spento tramite Foreground Service dedicato.
-- **Quiz Sophia**: quiz educativi di cultura generale e filosofia (Socrate, Nietzsche, Heisenberg, storia, letteratura) con spiegazioni didattiche approfondite.
-- **Influenza la percentuale in Home**.
-
-### 9. 📵 Digital Detox & Blocco Social Media
+### 8. 📵 Digital Detox & Blocco Social Media
 - Integrazione con l'API *UsageStats* (Benessere Digitale di Android).
 - Impostazione limiti di tempo giornalieri per le app social (Instagram, TikTok, X, Facebook, ecc.).
 - Rispettare i limiti social fa crescere la percentuale in Home; in caso di superamento viene mostrato un avviso chiaro.
 - **Influenza la percentuale in Home**.
 
-### 10. 👔 Wardrobe & Outfit Check
+### 9. 👔 Wardrobe & Outfit Check
 - Gestione guardaroba digitale per categorie (Top, Bottom, Scarpe, Capispalla) e stagioni.
 - **Outfit Meteo**: genera automaticamente combinazioni ottimali in base alle condizioni meteorologiche (Sole/Caldo, Pioggia, Freddo).
 - Wishlist capi desiderati con prezzo.
@@ -90,9 +85,9 @@ Tutte le schermate seguono un design minimale scuro (`#0D0F14`) con bordi soffus
 |:---:|:---:|:---:|
 | ![Gym](docs/screenshots/screen_gym.png) | ![School](docs/screenshots/screen_school.png) | ![Money](docs/screenshots/screen_money.png) |
 
-| Tasks & Promemoria | Challenges Offline | Cultura & Quiz Sophia |
-|:---:|:---:|:---:|
-| ![Tasks](docs/screenshots/screen_tasks.png) | ![Challenges](docs/screenshots/screen_challenges.png) | ![Cultura](docs/screenshots/screen_culture.png) |
+| Tasks & Promemoria | Challenges Offline |
+|:---:|:---:|
+| ![Tasks](docs/screenshots/screen_tasks.png) | ![Challenges](docs/screenshots/screen_challenges.png) |
 
 | Blocco Social Media | Wardrobe & Meteo | Impostazioni & Profilo |
 |:---:|:---:|:---:|
@@ -113,7 +108,7 @@ Tutte le schermate seguono un design minimale scuro (`#0D0F14`) con bordi soffus
 - **UI Toolkit**: Jetpack Compose (BOM 2026.02.01) + Material Design 3
 - **Architettura**: MVVM (Model-View-ViewModel) + Repository Pattern + StateFlow
 - **Persistenza**: Kotlinx Serialization JSON offline
-- **Background Tasks**: Android Foreground Service (Media Playback TTS), WorkManager
+- **Background Tasks**: WorkManager
 - **Compatibilità**: Android 7.0+ (minSdk 24, targetSdk 37)
 
 ---

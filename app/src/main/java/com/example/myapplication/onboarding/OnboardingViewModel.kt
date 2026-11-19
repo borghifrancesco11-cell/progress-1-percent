@@ -14,8 +14,9 @@ data class OnboardingState(
     val height: String = "",
     val age: String = "",
     val gender: String = "Non specificato",
+    val workoutType: String = "gym", // "gym", "calisthenics", "hybrid"
     val selectedModules: Set<String> = setOf(
-        "tracker", "food", "school", "money", "tasks", "challenges", "wardrobe", "gym", "culture", "social_blocker"
+        "tracker", "food", "gym", "school", "money", "tasks", "challenges", "wardrobe", "social_blocker"
     )
 )
 
@@ -44,6 +45,10 @@ class OnboardingViewModel(application: Application) : AndroidViewModel(applicati
         )
     }
 
+    fun setWorkoutType(type: String) {
+        _state.value = _state.value.copy(workoutType = type)
+    }
+
     fun toggleModule(moduleId: String) {
         if (moduleId == "tracker") return // Tracker non può essere disattivato
         val current = _state.value.selectedModules.toMutableSet()
@@ -59,11 +64,12 @@ class OnboardingViewModel(application: Application) : AndroidViewModel(applicati
         val s = _state.value
         repository.completeOnboarding(
             enabledModules = s.selectedModules,
-            name = s.name.trim(),
+            name = s.name.trim().ifBlank { "Utente" },
             weight = s.weight.toFloatOrNull() ?: 70f,
             height = s.height.toFloatOrNull() ?: 175f,
             age = s.age.toIntOrNull() ?: 20,
-            gender = s.gender
+            gender = s.gender,
+            workoutType = s.workoutType
         )
     }
 }

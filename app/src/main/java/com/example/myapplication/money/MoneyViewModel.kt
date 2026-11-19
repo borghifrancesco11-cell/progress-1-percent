@@ -22,19 +22,8 @@ class MoneyViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun loadData(): MoneyData {
         return JsonStorage.load<MoneyData>(context, "money_data") ?: MoneyData(
-            transactions = listOf(
-                Transaction(
-                    id = UUID.randomUUID().toString(),
-                    amount = 12.50f,
-                    type = TransactionType.EXPENSE,
-                    category = "Cibo",
-                    description = "Pranzo fuori",
-                    date = getCurrentDate()
-                )
-            ),
-            budgets = listOf(
-                MonthlyBudget(month = getCurrentMonth(), budget = 400f)
-            )
+            transactions = emptyList(),
+            budgets = emptyList()
         )
     }
 

@@ -19,28 +19,8 @@ class TasksViewModel(application: Application) : AndroidViewModel(application) {
     val data: StateFlow<TasksData> = _data.asStateFlow()
 
     private fun loadData(): TasksData {
-        val today = SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date())
         return JsonStorage.load<TasksData>(context, "tasks_data") ?: TasksData(
-            tasks = listOf(
-                Task(
-                    id = UUID.randomUUID().toString(),
-                    title = "Completare capitolo del libro",
-                    description = "Leggere 15 pagine",
-                    dueDate = today,
-                    dueTime = "18:00",
-                    completed = false,
-                    notifyEnabled = true
-                ),
-                Task(
-                    id = UUID.randomUUID().toString(),
-                    title = "Sessione di allenamento",
-                    description = "Scheda palestra A",
-                    dueDate = today,
-                    dueTime = "19:30",
-                    completed = false,
-                    notifyEnabled = true
-                )
-            )
+            tasks = emptyList()
         )
     }
 

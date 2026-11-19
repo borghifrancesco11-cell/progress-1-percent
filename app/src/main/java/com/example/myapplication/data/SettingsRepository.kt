@@ -12,10 +12,16 @@ class SettingsRepository(private val context: Context) {
     val settings: StateFlow<AppSettings> = _settings.asStateFlow()
 
     private fun loadSettings(): AppSettings {
-        return JsonStorage.load<AppSettings>(context, "app_settings") ?: AppSettings(
+        val saved = JsonStorage.load<AppSettings>(context, "app_settings")
+        val settings = saved ?: AppSettings(
             onboardingCompleted = false,
-            enabledModules = setOf("tracker", "food", "school", "money", "tasks", "challenges", "wardrobe", "gym", "culture", "social_blocker")
+            enabledModules = setOf("tracker", "food", "gym", "school", "money", "tasks", "challenges", "wardrobe", "social_blocker"),
+            themeMode = "oled",
+            workoutType = "gym"
         )
+        // I moduli rimossi dall'app non devono restare attivi nei dati salvati.
+        val removedModules = setOf("culture", "zetamath")
+        return settings.copy(enabledModules = settings.enabledModules - removedModules)
     }
 
     fun updateSettings(newSettings: AppSettings) {
@@ -35,13 +41,23 @@ class SettingsRepository(private val context: Context) {
         updateSettings(updated)
     }
 
+    fun setThemeMode(mode: String) {
+        updateSettings(_settings.value.copy(themeMode = mode))
+    }
+
+    fun setWorkoutType(type: String) {
+        updateSettings(_settings.value.copy(workoutType = type))
+    }
+
     fun completeOnboarding(
         enabledModules: Set<String>,
         name: String,
         weight: Float,
         height: Float,
         age: Int,
-        gender: String
+        gender: String,
+        workoutType: String = "gym",
+        themeMode: String = "oled"
     ) {
         val updated = AppSettings(
             onboardingCompleted = true,
@@ -50,7 +66,9 @@ class SettingsRepository(private val context: Context) {
             userWeight = weight,
             userHeight = height,
             userAge = age,
-            userGender = gender
+            userGender = gender,
+            workoutType = workoutType,
+            themeMode = themeMode
         )
         updateSettings(updated)
     }
