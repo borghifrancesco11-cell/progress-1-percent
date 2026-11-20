@@ -309,3 +309,22 @@ data class SocialBlockerData(
     ),
     val enabled: Boolean = false,
 )
+
+// ── Sleep ──
+
+@Serializable
+data class SleepEntry(
+    val id: String = "",
+    val date: String = "", // yyyy-MM-dd, giorno del risveglio
+    val bedtime: String = "", // HH:mm, addormentamento
+    val wakeTime: String = "", // HH:mm, risveglio
+    val durationMinutes: Int = 0,
+    val quality: Int = 3, // 1–5
+    val note: String = "",
+)
+
+@Serializable
+data class SleepData(
+    val entries: List<SleepEntry> = emptyList(),
+    val targetHours: Float = 8f,
+)

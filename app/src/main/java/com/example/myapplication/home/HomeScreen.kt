@@ -492,6 +492,16 @@ fun HomeScreen(
                 tiles.add(TileData("Wardrobe", "Meteo & Capsule", Icons.Default.Checkroom, Screen.Wardrobe.route, CategoryBlue, tag = "LOOK"))
             }
 
+            // 9. Sonno & Recupero (Sleep tracker)
+            if (enabled.contains("sleep")) {
+                val sleepSub = if (state.lastSleepMinutes > 0) {
+                    "${state.lastSleepMinutes / 60}h ${state.lastSleepMinutes % 60}m"
+                } else {
+                    "Recupero & Qualità"
+                }
+                tiles.add(TileData("Sonno", sleepSub, Icons.Default.Bedtime, Screen.Sleep.route, CategoryPurple, tag = "REST"))
+            }
+
             tiles.chunked(2).forEach { pair ->
                 Row(
                     modifier = Modifier

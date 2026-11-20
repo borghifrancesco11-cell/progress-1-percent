@@ -272,7 +272,8 @@ fun SettingsScreen(
                     "money" to "Money & Budget",
                     "tasks" to "Tasks & Promemoria",
                     "challenges" to "Sfide 1% Offline",
-                    "wardrobe" to "Wardrobe & Meteo"
+                    "wardrobe" to "Wardrobe & Meteo",
+                    "sleep" to "Sonno & Recupero"
                 )
 
                 allModules.forEach { (id, label) ->

@@ -337,7 +337,8 @@ fun ModulesStep(
             Pair("tasks", "📝 Tasks & Promemoria"),
             Pair("challenges", "🏆 Challenges Offline"),
             Pair("social_blocker", "📵 Blocco Social Media"),
-            Pair("wardrobe", "👔 Wardrobe & Outfit")
+            Pair("wardrobe", "👔 Wardrobe & Outfit"),
+            Pair("sleep", "😴 Sonno & Recupero")
         )
 
         modules.forEach { (id, title) ->

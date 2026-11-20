@@ -17,6 +17,7 @@ import com.example.myapplication.money.MoneyScreen
 import com.example.myapplication.onboarding.OnboardingScreen
 import com.example.myapplication.school.SchoolScreen
 import com.example.myapplication.settings.SettingsScreen
+import com.example.myapplication.sleep.SleepScreen
 import com.example.myapplication.socialblocker.SocialBlockerScreen
 import com.example.myapplication.tasks.TasksScreen
 import com.example.myapplication.tracker.TrackerScreen
@@ -112,6 +113,12 @@ fun AppNavigation(
 
         composable(Screen.SocialBlocker.route) {
             SocialBlockerScreen(
+                onBack = { navController.popBackStack() }
+            )
+        }
+
+        composable(Screen.Sleep.route) {
+            SleepScreen(
                 onBack = { navController.popBackStack() }
             )
         }

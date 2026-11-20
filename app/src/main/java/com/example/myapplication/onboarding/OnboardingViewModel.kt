@@ -16,7 +16,7 @@ data class OnboardingState(
     val gender: String = "Non specificato",
     val workoutType: String = "gym", // "gym", "calisthenics", "hybrid"
     val selectedModules: Set<String> = setOf(
-        "tracker", "food", "gym", "school", "money", "tasks", "challenges", "wardrobe", "social_blocker"
+        "tracker", "food", "gym", "school", "money", "tasks", "challenges", "wardrobe", "social_blocker", "sleep"
     )
 )
 

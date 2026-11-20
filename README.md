@@ -71,6 +71,13 @@ Tutti i dati vengono salvati **100% offline in locale (file JSON)** sul disposit
 - Liste valigia con checklist per i viaggi.
 - *(Questo modulo non influisce sulla percentuale in Home)*.
 
+### 10. 😴 Sonno & Recupero
+- Registrazione delle notti con orario di addormentamento e risveglio (gestione automatica della mezzanotte).
+- Qualità percepita del sonno (1–5 stelle) e note personali.
+- Obiettivo di sonno configurabile (default 8h), media degli ultimi 7 giorni e grafico settimanale.
+- Storico completo delle notti con durata e qualità.
+- **Influenza la percentuale in Home** (70% durata rispetto all'obiettivo, 30% qualità percepita).
+
 ---
 
 ## 📸 Galleria Screenshot (Design Minimal Dark & Mint)

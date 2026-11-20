@@ -12,6 +12,7 @@ import com.example.myapplication.gym.GymScoreProvider
 import com.example.myapplication.money.MoneyScoreProvider
 import com.example.myapplication.school.SchoolScoreProvider
 import com.example.myapplication.score.ScoreAggregator
+import com.example.myapplication.sleep.SleepScoreProvider
 import com.example.myapplication.socialblocker.SocialBlockerScoreProvider
 import com.example.myapplication.tasks.TasksScoreProvider
 import com.example.myapplication.tracker.TrackerScoreProvider
@@ -47,7 +48,8 @@ data class HomeState(
     val todayCalories: Int = 0,
     val targetCalories: Int = 2000,
     val todayWorkoutsCount: Int = 0,
-    val tasksPendingCount: Int = 0
+    val tasksPendingCount: Int = 0,
+    val lastSleepMinutes: Int = 0
 )
 
 class HomeViewModel(application: Application) : AndroidViewModel(application) {
@@ -94,6 +96,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         scoreAggregator.register(TasksScoreProvider(context))
         scoreAggregator.register(ChallengesScoreProvider(context))
         scoreAggregator.register(SocialBlockerScoreProvider(context))
+        scoreAggregator.register(SleepScoreProvider(context))
     }
 
     fun nextQuote() {
@@ -154,6 +157,14 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             }
         } catch (_: Exception) {}
 
+        var lastSleepMinutes = 0
+        try {
+            val sleepData = JsonStorage.load<com.example.myapplication.data.model.SleepData>(context, "sleep_data")
+            if (sleepData != null) {
+                lastSleepMinutes = sleepData.entries.maxByOrNull { it.date }?.durationMinutes ?: 0
+            }
+        } catch (_: Exception) {}
+
         _state.value = HomeState(
             totalScore = total,
             scoreText = "${total.toInt()} / 100",
@@ -172,7 +183,8 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             todayCalories = todayCalories,
             targetCalories = targetCalories,
             todayWorkoutsCount = todayWorkouts,
-            tasksPendingCount = tasksPending
+            tasksPendingCount = tasksPending,
+            lastSleepMinutes = lastSleepMinutes
         )
     }
 

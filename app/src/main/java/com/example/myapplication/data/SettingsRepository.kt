@@ -15,7 +15,7 @@ class SettingsRepository(private val context: Context) {
         val saved = JsonStorage.load<AppSettings>(context, "app_settings")
         val settings = saved ?: AppSettings(
             onboardingCompleted = false,
-            enabledModules = setOf("tracker", "food", "gym", "school", "money", "tasks", "challenges", "wardrobe", "social_blocker"),
+            enabledModules = setOf("tracker", "food", "gym", "school", "money", "tasks", "challenges", "wardrobe", "social_blocker", "sleep"),
             themeMode = "oled",
             workoutType = "gym"
         )
