@@ -1,28 +1,31 @@
 import java.util.Properties
 
 plugins {
-    alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.compose)
-    alias(libs.plugins.kotlin.serialization)
+    id("com.android.application")
+    id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// Optional cloud macro estimation (Gemini). Never commit the key: put it in
+// local.properties as GEMINI_API_KEY=...  Without it the app uses the offline
+// nutrition database and the second model is reported as unavailable.
 val localProperties = Properties().apply {
-    val f = rootProject.file("local.properties")
-    if (f.exists()) load(f.inputStream())
+    val file = rootProject.file("local.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
 }
 
 android {
-    namespace = "com.example.myapplication"
-    compileSdk {
-        version = release(37)
-    }
-
+    namespace = "com.progressone.nativeapp"
+    compileSdk = 36
     defaultConfig {
-        applicationId = "com.example.myapplication"
-        minSdk = 24
-        targetSdk = 37
-        versionCode = 1
-        versionName = "1.0"
+        applicationId = "com.progressone.nativeapp"
+        minSdk = 26
+        targetSdk = 36
+        versionCode = 1200
+        versionName = "1.2.0"
+        // Target device is ARM64 (Nothing Phone 3a). Avoid packaging x86 and
+        // 32-bit ML Kit native libraries in the user-facing debug APK.
+        ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
         buildConfigField(
@@ -31,65 +34,75 @@ android {
             "\"${localProperties.getProperty("GEMINI_API_KEY", "")}\""
         )
     }
-
     buildTypes {
         release {
             isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
         }
+        
+        debug {
+            isMinifyEnabled = false
+            isDebuggable = true
+            applicationIdSuffix = ".debug"
+        }
     }
     compileOptions {
-        sourceCompatibility = JavaVersion.VERSION_11
-        targetCompatibility = JavaVersion.VERSION_11
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+        isCoreLibraryDesugaringEnabled = true
     }
     buildFeatures {
         compose = true
         buildConfig = true
     }
+    androidResources {
+        noCompress += listOf("onnx")
+    }
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+        resources {
+            excludes += "/META-INF/{AL2.0,LGPL2.1}"
+        }
+    }
 }
 
 dependencies {
-    // Compose BOM
-    implementation(platform(libs.androidx.compose.bom))
-    implementation(libs.androidx.compose.ui)
-    implementation(libs.androidx.compose.ui.graphics)
-    implementation(libs.androidx.compose.ui.tooling.preview)
-    implementation(libs.androidx.compose.material3)
-    implementation(libs.androidx.compose.material.icons.extended)
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    implementation(platform("androidx.compose:compose-bom:2025.09.00"))
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    implementation("androidx.compose.foundation:foundation")
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.material:material-icons-extended")
+    implementation("androidx.compose.animation:animation")
+    implementation("androidx.activity:activity-compose:1.11.0")
+    implementation("androidx.core:core-ktx:1.17.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.2")
+    implementation("androidx.exifinterface:exifinterface:1.4.1")
+    implementation("com.google.android.gms:play-services-mlkit-subject-segmentation:16.0.0-beta1")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.10.2")
+    // Offline image labels only; NOT a food-specific portion or nutrition model.
+    implementation("com.google.mlkit:image-labeling:17.0.9")
+    // Offline barcode scanning for packaged foods (no photo uploads).
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
+    // On-device Food Vision ONNX Runtime
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.20.0")
+    // Optional cloud macro estimator (Gemini). Falls back to FoodDatabase offline.
+    implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
 
-    // Core Android
-    implementation(libs.androidx.core.ktx)
-    implementation(libs.androidx.activity.compose)
-    implementation(libs.androidx.lifecycle.runtime.ktx)
-    implementation(libs.androidx.lifecycle.viewmodel.compose)
+    testImplementation("junit:junit:4.13.2")
+    testImplementation("org.json:json:20240303")
+    debugImplementation("androidx.compose.ui:ui-tooling")
+}
 
-    // Navigation
-    implementation(libs.androidx.navigation.compose)
-
-    // Serialization (JSON offline storage)
-    implementation(libs.kotlinx.serialization.json)
-
-    // ONNX Runtime (food image recognition)
-    implementation(libs.onnxruntime.android)
-
-    // Coil (image loading for wardrobe)
-    implementation(libs.coil.compose)
-
-    // WorkManager (task notifications)
-    implementation(libs.androidx.work.runtime.ktx)
-
-    // Gemini AI (macro calculation)
-    implementation(libs.generativeai)
-
-    // Testing
-    testImplementation(libs.junit)
-    androidTestImplementation(platform(libs.androidx.compose.bom))
-    androidTestImplementation(libs.androidx.compose.ui.test.junit4)
-    androidTestImplementation(libs.androidx.espresso.core)
-    androidTestImplementation(libs.androidx.junit)
-    debugImplementation(libs.androidx.compose.ui.test.manifest)
-    debugImplementation(libs.androidx.compose.ui.tooling)
+kotlin {
+    compilerOptions {
+        jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+    }
 }

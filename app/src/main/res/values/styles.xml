@@ -1,0 +1,27 @@
+<resources>
+    <!--
+        Android 17 (API 37) edge-to-edge is enforced by default for all apps
+        (started from API 35). The Theme.Material3.DayNight.NoActionBar base
+        already ships the correct window flags, transparent bar colors and the
+        we can keep our OLED background while still letting enableEdgeToEdge()
+        in MainActivity handle insets the correct, Compose-native way.
+
+        android:windowLightStatusBar=false   → white icons on the dark bar
+        Edge-to-edge system-bar icon contrast is handled by enableEdgeToEdge().
+
+        windowBackground is set to Night (#07090D) to avoid a white flash on
+        cold launch before Compose draws its first frame.
+    -->
+    <style name="Theme.ProgressOne" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#07090D</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <!-- Suppress the forced edge-to-edge enforcement added in API 35.
+             We handle insets ourselves via Compose padding / WindowInsets.
+             Remove this attribute once you are ready to fully adopt the
+             new enforced edge-to-edge layout (the Compose scaffolding here
+             already handles it correctly, so this is just a safety valve). -->
+    </style>
+</resources>
+

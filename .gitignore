@@ -1,28 +1,22 @@
+.gradle/
+.idea/
 *.iml
-.gradle
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
-.DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
 local.properties
+build/
+**/build/
+.DS_Store
 
-# Artefatti, chiavi e credenziali
+# Large binary assets: download the Food-101 ONNX model with
+#   ./scripts/download_food_model.sh
+app/src/main/assets/*.onnx
+
+# Generated build artefacts / dumps
+app/mapping.txt
+app/seeds.txt
 *.apk
 *.aab
-*.safetensors
 *.jks
 *.keystore
 google-services.json
 .env
 Progress1Percent_Release.zip
-1% versions/
-*.pdf
-.mcp.json

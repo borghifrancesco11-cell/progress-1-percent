@@ -1,157 +1,187 @@
-# 🚀 Progress 1% — Crescita Personale & Benessere a 360°
+# Progress 1 Percent
 
-<p align="center">
-  <b>Migliora dell'1% ogni giorno. Tutto offline, sicuro e privato.</b>
-</p>
+[![Version](https://img.shields.io/badge/version-1.2.0-blue)](https://github.com/borghifrancesco11-cell/progress-1-percent)
+![Kotlin](https://img.shields.io/badge/Kotlin-2.x-0098D1?logo=kotlin)
+![Jetpack Compose](https://img.shields.io/badge/UI-Jetpack%20Compose-4285F4?logo=android)
+![Material 3](https://img.shields.io/badge/Design-Material%203-6200EE?logo=material-design)
+![minSdk](https://img.shields.io/badge/minSdk-26-green)
 
----
+App Android **offline-first** per il miglioramento personale: alimentazione, palestra,
+sonno, finanze, studio, abitudini, guardaroba e social, tutto aggregato in un unico
+punteggio di progresso giornaliero.
 
-## 📱 Visione & Concetto
-**Progress 1%** è un'app Android progettata attorno al principio del miglioramento continuo quotidiano (*Kaizen*). Tutto ruota attorno alla **Percentuale in Home**: uno score unificato (0–100%) che sintetizza in tempo reale la costanza e il progresso nelle varie dimensioni della vita personale.
-
-Tutti i dati vengono salvati **100% offline in locale (file JSON)** sul dispositivo: nessun dato personale o abitudine viene condiviso su server esterni.
-
----
-
-## ✨ Funzionalità & Moduli
-
-### 1. 🎯 Tracker Abitudini (Core Obbligatorio)
-- Creazione goal di tipo **COUNT** (es. bere 2L d'acqua, fare 10.000 passi) o **QUIT** (es. smettere di fumare, eliminare zuccheri).
-- Periodicità configurabile: **Settimana**, **Mese**, **Anno**.
-- **Score dedicato e indipendente**: monitora la consistenza specifica delle tue abitudini.
-
-### 2. 🥗 Food & Macro AI (Riconoscimento Immagine + Gemini)
-- Riconoscimento fotografico alimenti con modello di computer vision integrato (101 classi alimentari).
-- Calcolo automatico e stima dei macronutrienti (Calorie, Proteine, Carboidrati, Grassi) e porzioni tramite AI (Google Generative AI con fallback nutrizionale offline).
-- Monitoraggio pasti giornalieri (Colazione, Pranzo, Cena, Snack) e target calorico.
-- **Influenza la percentuale in Home**.
-
-### 3. 🏋️‍♂️ Palestra (OpenGym Nativo)
-- Integrazione nativa e semplificata delle funzionalità chiave di OpenGym.
-- Dati fisici unificati col profilo utente (Peso, Altezza, BMI calcolato).
-- Schede di allenamento personalizzabili (Upper Body, Lower Body, Push/Pull/Legs).
-- Sessione di allenamento interattiva con **Rest Timer** (conto alla rovescia di recupero tra serie), carichi e ripetizioni.
-- Registro dei massimali e record personali (**PR**) e storico allenamenti.
-- **Influenza la percentuale in Home**.
-
-### 4. 📚 School & Simulator
-- Monitoraggio voti e calcolo della media generale e per singola materia.
-- Calendario delle prossime verifiche e interrogazioni.
-- **Simulatore di Voti**: inserisci un ipotetico voto per vedere istantaneamente l'impatto sulla media della materia e sulla media generale complessiva.
-- **Influenza la percentuale in Home**.
-
-### 5. 💰 Money & Budget
-- Tracciamento entrate e uscite suddivise per categoria (Cibo, Trasporti, Shopping, ecc.).
-- Pianificazione e controllo del budget mensile con progress bar visiva.
-- Monitoraggio spese giornaliere e mensili.
-- **Influenza la percentuale in Home**.
-
-### 6. 📝 Tasks & Promemoria
-- Gestione attività quotidiane con scadenza oraria.
-- Notifiche locali di promemoria tramite Android WorkManager.
-- Completare più compiti fa salire direttamente il punteggio giornaliero.
-- **Influenza la percentuale in Home**.
-
-### 7. 🏆 Challenges Offline
-- Sfide preimpostate a medio e lungo termine (7, 14, 21, 30 giorni) per creare abitudini virtuose (es. sveglia alle 6:00, no junk food, gratitudine quotidiana).
-- Creazione di sfide personalizzate.
-- Check-in giornaliero e tracciamento progresso giorni.
-- **Influenza la percentuale in Home**.
-
-### 8. 📵 Digital Detox & Blocco Social Media
-- Integrazione con l'API *UsageStats* (Benessere Digitale di Android).
-- Impostazione limiti di tempo giornalieri per le app social (Instagram, TikTok, X, Facebook, ecc.).
-- Rispettare i limiti social fa crescere la percentuale in Home; in caso di superamento viene mostrato un avviso chiaro.
-- **Influenza la percentuale in Home**.
-
-### 9. 👔 Wardrobe & Outfit Check
-- Gestione guardaroba digitale per categorie (Top, Bottom, Scarpe, Capispalla) e stagioni.
-- **Outfit Meteo**: genera automaticamente combinazioni ottimali in base alle condizioni meteorologiche (Sole/Caldo, Pioggia, Freddo).
-- Wishlist capi desiderati con prezzo.
-- Liste valigia con checklist per i viaggi.
-- *(Questo modulo non influisce sulla percentuale in Home)*.
-
-### 10. 😴 Sonno & Recupero
-- Registrazione delle notti con orario di addormentamento e risveglio (gestione automatica della mezzanotte).
-- Qualità percepita del sonno (1–5 stelle) e note personali.
-- Obiettivo di sonno configurabile (default 8h), media degli ultimi 7 giorni e grafico settimanale.
-- Storico completo delle notti con durata e qualità.
-- **Influenza la percentuale in Home** (70% durata rispetto all'obiettivo, 30% qualità percepita).
+Questa è la versione **1.2.0**, nata dall'APK nativo più recente (`com.progressone.nativeapp`)
+con l'aggiunta delle funzioni che esistevano solo nella vecchia versione pubblicata su GitHub.
 
 ---
 
-## 📸 Galleria Screenshot (Design Minimal Dark & Mint)
+## 🤖 I due modelli AI (risposta breve: sì, ma con una precisazione)
 
-Tutte le schermate seguono un design minimale scuro (`#0D0F14`) con bordi soffusi (`#1E232F`), accenti verde menta (`#4ADE80`), font puliti e barra di navigazione a dock fluttuante:
+L'app ha **due percorsi AI distinti** nel modulo Alimentazione:
 
-| Home & Dock | Tracker Abitudini | Food & Macro AI |
-|:---:|:---:|:---:|
-| ![Home](docs/screenshots/screen_home.png) | ![Tracker](docs/screenshots/screen_tracker.png) | ![Food](docs/screenshots/screen_food.png) |
+| # | Modello | Dove gira | Cosa fa | Quando è attivo |
+|---|---------|-----------|---------|-----------------|
+| 1 | **Swin Transformer Food-101** (ONNX Runtime) | Sul telefono, offline | Riconosce il **cibo dalla foto** tra 101 categorie | Sempre (se il modello ONNX è presente negli assets) |
+| 2 | **Google Gemini 1.5 Flash** | Cloud | Stima **calorie e macro** (proteine, carboidrati, grassi, grammi) del piatto riconosciuto | Solo se è configurata `GEMINI_API_KEY` |
 
-| Palestra (OpenGym) | Scuola & Simulatore | Finanze & Budget |
-|:---:|:---:|:---:|
-| ![Gym](docs/screenshots/screen_gym.png) | ![School](docs/screenshots/screen_school.png) | ![Money](docs/screenshots/screen_money.png) |
+Se la chiave Gemini non è configurata (o la rete non è disponibile), il secondo percorso
+**non è un modello AI**: usa il database nutrizionale offline (`FoodDatabase`) con valori
+deterministici. La card "Modelli AI" nella schermata Alimentazione mostra in tempo reale
+quale dei due percorsi è realmente attivo.
 
-| Tasks & Promemoria | Challenges Offline |
-|:---:|:---:|
-| ![Tasks](docs/screenshots/screen_tasks.png) | ![Challenges](docs/screenshots/screen_challenges.png) |
-
-| Blocco Social Media | Wardrobe & Meteo | Impostazioni & Profilo |
-|:---:|:---:|:---:|
-| ![Social](docs/screenshots/screen_socialblocker.png) | ![Wardrobe](docs/screenshots/screen_wardrobe.png) | ![Settings](docs/screenshots/screen_settings.png) |
+> ⚠️ Nell'APK originale che avevi installato c'era **solo** il modello 1 (vision).
+> I macro venivano presi dal database locale. Il modello 2 esisteva solo nella vecchia
+> versione GitHub: in questa 1.2.0 è stato riportato e integrato.
 
 ---
 
-## 🔒 Sicurezza & Privacy
-- **Nessuna API Key committata**: le chiavi per i servizi esterni (Gemini AI) sono gestite tramite `local.properties` e protette nel file `BuildConfig`.
-- **Dati 100% Offline**: salvataggio in locale su file JSON nella memoria protetta dell'applicazione (`context.filesDir`).
-- **Nessun tracking**: nessuna libreria di analitica di terze parti o telemetria invasiva.
-- **File sensibili esclusi dal repository**: `.gitignore` protegge file di build, keystore, file di proprietà e artefatti di debug.
+## ✨ Funzionalità
+
+### Alimentazione
+- 📷 **Riconoscimento cibo da foto** con Swin Food-101 (on-device, offline)
+- 🧠 **Stima macro con Gemini 1.5 Flash** (opzionale, cloud) con fallback offline
+- 🎯 Obiettivi giornalieri di calorie e macro modificabili
+- 🏷️ Badge che indicano la fonte di ogni stima (AI cloud / database offline)
+- 🥗 Database nutrizionale locale per pasti inseriti a mano
+- 📊 Barcode scanning per prodotti confezionati (ML Kit, offline)
+
+### Palestra
+- Schede, serie/ripetizioni, storico allenamenti
+- Peso, altezza, **BMI** e composizione corporea
+- Obiettivi di forza e progressione
+
+### Sonno e recupero
+- Registrazione ore dormite e qualità
+- Punteggio di recupero integrato nel progresso giornaliero
+
+### Studio
+- Materie, voti e media
+- **Simulatore di voto ipotetico** ("e se prendessi X?")
+
+### Finanze
+- Entrate/uscite per categoria
+- Budget mensile e risparmio
+
+### Abitudini e tracker
+- Tracker giornaliero / settimanale / mensile / **annuale**
+- Streak e promemoria
+
+### Guardaroba
+- Armadio digitale, mix & match outfit
+- **Generazione outfit in base al meteo** (temperatura e condizioni)
+
+### Altro
+- Punteggio di progresso aggregato (0–100%)
+- Tema OLED dark, UI completamente in italiano
+- Prima configurazione guidata e tutorial
+- Funziona **senza account e senza cloud** (tranne la stima macro opzionale)
 
 ---
 
-## 🛠️ Stack Tecnologico
-- **Linguaggio**: Kotlin 2.2.10
-- **UI Toolkit**: Jetpack Compose (BOM 2026.02.01) + Material Design 3
-- **Architettura**: MVVM (Model-View-ViewModel) + Repository Pattern + StateFlow
-- **Persistenza**: Kotlinx Serialization JSON offline
-- **Background Tasks**: WorkManager
-- **Compatibilità**: Android 7.0+ (minSdk 24, targetSdk 37)
+## 🏗️ Architettura
 
----
-
-## 📦 Installazione APK
-
-L'APK compilato e pronto all'uso è disponibile nella root del repository o nell'archivio di release:
-- `Progress1Percent_v1.0.apk`
-
-Per installarlo tramite `adb`:
-```bash
-adb install -r Progress1Percent_v1.0.apk
+```
+app/src/main/java/com/progressone/nativeapp/
+├── MainActivity.kt
+├── data/                     # Store locale, modelli, calcoli, logica pura
+│   ├── LocalStore.kt
+│   ├── Metrics.kt
+│   ├── NutritionMath.kt
+│   ├── OutfitLogic.kt
+│   ├── ProgressScore.kt
+│   └── ...
+├── foodvision/
+│   ├── Food101Classifier.kt  # Modello 1: Swin Food-101 ONNX (on-device)
+│   ├── FoodDatabase.kt       # Fallback nutrizionale offline
+│   └── MacroAiEstimator.kt   # Modello 2: Gemini 1.5 Flash + fallback
+├── media/ImageProcessor.kt
+├── reminders/ReminderScheduler.kt
+├── weather/WeatherService.kt
+└── ui/                       # Schermate Jetpack Compose
+    ├── TodayScreen.kt
+    ├── FoodScreen.kt
+    ├── GymScreen.kt
+    ├── SleepScreen.kt
+    ├── SchoolScreen.kt
+    ├── FinanceScreen.kt
+    ├── TrackScreen.kt
+    ├── WardrobeScreen.kt
+    ├── SettingsScreen.kt
+    └── ...
 ```
 
 ---
 
-## 💻 Compilazione da Sorgente
+## 🚀 Build
 
-1. Clona il repository:
+### Requisiti
+- JDK **21**
+- Android SDK con API 36
+- Modello ONNX Food-101 scaricato (vedi sotto)
+
 ```bash
-git clone https://github.com/tuo-username/Progress1Percent.git
-cd Progress1Percent
+# 1. Scarica il modello vision (336 MB, non incluso nel repo)
+./scripts/download_food_model.sh
+
+# 2. Configura il percorso dell'SDK
+cp local.properties.example local.properties
+# poi imposta sdk.dir=/percorso/Android/Sdk
+
+# 3. Build debug
+./gradlew :app:assembleDebug
+
+# 4. Build release (firmata con la tua keystore)
+./gradlew :app:assembleRelease
 ```
 
-2. (Opzionale) Aggiungi la tua Gemini API Key in `local.properties`:
+L'APK di debug ha package `com.progressone.nativeapp.debug` e può convivere con la
+versione release `com.progressone.nativeapp`.
+
+### Modello vision
+
+Il file `app/src/main/assets/swin_food101_fp32.onnx` (~336 MB) è escluso da git perché
+troppo grande. Viene scaricato da Hugging Face:
+
+```
+https://huggingface.co/onnx-community/swin-finetuned-food101-ONNX/resolve/main/onnx/model.onnx
+```
+
+Le etichette delle 101 classi sono in `app/src/main/assets/food101_labels.txt`.
+
+---
+
+## 🔑 Configurazione Gemini (opzionale)
+
+La stima macro cloud usa Google Gemini 1.5 Flash. La chiave **non va mai committata**:
+inseriscila in `local.properties` (già in `.gitignore`):
+
 ```properties
-sdk.dir=/path/to/your/Android/Sdk
-GEMINI_API_KEY=la_tua_api_key_qui
+GEMINI_API_KEY=la_tua_chiave_qui
 ```
 
-3. Compila l'APK:
-```bash
-./gradlew assembleDebug
-```
+Senza chiave l'app resta pienamente funzionante e usa il database nutrizionale offline.
+La chiave viene letta a build time e inserita in `BuildConfig.GEMINI_API_KEY`.
+
+---
+
+## 📱 Moduli
+
+| Modulo | Stato | Note |
+|--------|-------|------|
+| Alimentazione | ✅ | Vision + macro AI + obiettivi |
+| Palestra | ✅ | BMI e storico |
+| Sonno | ✅ | Punteggio recupero |
+| Studio | ✅ | Simulatore voto |
+| Finanze | ✅ | Budget |
+| Tracker | ✅ | Giorno/settimana/mese/anno |
+| Guardaroba | ✅ | Outfit meteo |
+| Social | ✅ | Challenge |
+| Compiti | ✅ | — |
+
+I moduli possono essere attivati/disattivati dalle Impostazioni.
 
 ---
 
 ## 📄 Licenza
-Rilasciato sotto licenza MIT.
+
+Progetto personale. Vedi il repository per i dettagli.
