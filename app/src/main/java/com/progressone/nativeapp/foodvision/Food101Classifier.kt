@@ -2,9 +2,14 @@ package com.progressone.nativeapp.foodvision
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.util.Log
 import ai.onnxruntime.OnnxTensor
 import ai.onnxruntime.OrtEnvironment
 import ai.onnxruntime.OrtSession
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import java.io.Closeable
 import java.io.File
 import java.io.FileOutputStream
@@ -17,6 +22,11 @@ import kotlin.math.exp
  *
  * Input: "pixel_values" [1, 3, 224, 224] RGB, normalized with ImageNet mean/std.
  * Output: "logits" [1, 101] float logits.
+ *
+ * The model ships inside the APK as an uncompressed asset. ONNX Runtime needs a real
+ * file on disk, so the asset is materialised once into the app's private storage and
+ * reused afterwards. Preparation is retryable: a transient failure (for example a full
+ * disk) never poisons the session for the rest of the process lifetime.
  */
 class Food101Classifier private constructor(context: Context) : Closeable {
     data class Prediction(val label: String, val confidence: Float)
@@ -35,16 +45,8 @@ class Food101Classifier private constructor(context: Context) : Closeable {
             .filter { it.isNotBlank() }
         require(labels.size == 101) { "Expected 101 Food-101 English labels, found ${labels.size}" }
 
-        // Stream from assets to internal storage to avoid large heap allocation
-        val modelFile = File(context.filesDir, MODEL_FILE)
-        if (!modelFile.exists() || modelFile.length() < 300_000_000L) {
-            context.assets.open(MODEL_FILE).use { input ->
-                FileOutputStream(modelFile).use { output ->
-                    input.copyTo(output, bufferSize = 128 * 1024)
-                }
-            }
-        }
         // Create session via file path to utilize memory-mapped file access
+        val modelFile = materializeModel(context)
         session = environment.createSession(modelFile.absolutePath, options)
         inputName = session.inputNames.first()
     }
@@ -105,24 +107,90 @@ class Food101Classifier private constructor(context: Context) : Closeable {
     companion object {
         const val MODEL_FILE = "swin_food101_fp32.onnx"
         const val LABELS_FILE = "food101_labels.txt"
+        private const val TAG = "FoodVision"
 
         @Volatile
         private var instance: Food101Classifier? = null
 
-        @Volatile
-        private var initError: Throwable? = null
+        private val lock = Mutex()
 
-        fun getInstance(context: Context): Food101Classifier? {
-            if (initError != null) return null
-            return instance ?: synchronized(this) {
-                initError?.let { return null }
-                instance ?: try {
-                    Food101Classifier(context.applicationContext).also { instance = it }
-                } catch (e: Throwable) {
-                    initError = e
-                    null
+        /**
+         * Returns a ready classifier, preparing the model on first use.
+         * Safe to call from any thread; concurrent callers share one session.
+         * Failures are reported instead of being cached forever.
+         */
+        suspend fun prepare(context: Context): Result<Food101Classifier> =
+            withContext(Dispatchers.IO) {
+                instance?.let { return@withContext Result.success(it) }
+                lock.withLock {
+                    instance?.let { return@withLock Result.success(it) }
+                    runCatching {
+                        Food101Classifier(context.applicationContext).also { instance = it }
+                    }.onFailure { Log.e(TAG, "Food vision model unavailable", it) }
+                }
+            }
+
+        /** Drops the cached session so the next [prepare] call starts from scratch. */
+        suspend fun reset() = withContext(Dispatchers.IO) {
+            lock.withLock {
+                instance?.let {
+                    runCatching { it.close() }
+                    instance = null
                 }
             }
         }
+
+        /** Copies the asset model to private storage so ONNX Runtime can mmap it. */
+        private fun materializeModel(context: Context): File {
+            val directory = context.noBackupFilesDir
+            if (!directory.exists()) directory.mkdirs()
+            val target = File(directory, MODEL_FILE)
+
+            val expected = assetLength(context)
+            if (target.isFile && expected > 0 && target.length() == expected) return target
+
+            val usable = directory.usableSpace
+            if (expected > 0 && usable < expected + MIN_FREE_BYTES) {
+                throw IllegalStateException(
+                    "Not enough free space for the AI model (need ${expected / 1024 / 1024} MB, " +
+                        "available ${usable / 1024 / 1024} MB)"
+                )
+            }
+
+            val temporary = File(directory, "$MODEL_FILE.part")
+            temporary.delete()
+            try {
+                context.assets.open(MODEL_FILE).use { input ->
+                    FileOutputStream(temporary).use { output ->
+                        input.copyTo(output, bufferSize = 256 * 1024)
+                        output.flush()
+                    }
+                }
+                if (expected > 0 && temporary.length() != expected) {
+                    throw IllegalStateException(
+                        "Incomplete AI model download (${temporary.length()} of $expected bytes)"
+                    )
+                }
+                if (!temporary.renameTo(target)) {
+                    target.delete()
+                    if (!temporary.renameTo(target)) {
+                        throw IllegalStateException("Could not install the AI model file")
+                    }
+                }
+            } catch (e: Throwable) {
+                temporary.delete()
+                throw e
+            }
+            Log.i(TAG, "Food vision model installed in ${target.length() / 1024 / 1024} MB")
+            return target
+        }
+
+        private fun assetLength(context: Context): Long = runCatching {
+            context.assets.openFd(MODEL_FILE).use { it.length }
+        }.getOrElse {
+            runCatching { context.assets.open(MODEL_FILE).use { it.available().toLong() } }.getOrDefault(0L)
+        }
+
+        private const val MIN_FREE_BYTES = 64L * 1024 * 1024
     }
 }

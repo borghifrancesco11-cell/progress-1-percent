@@ -1,60 +1,56 @@
-# Progress1Percent — istruzioni per Copilot
+# Progress1Percent — instructions for coding agents
 
-App Android di crescita personale: tutto ruota attorno a una **percentuale in home** che
-aggrega l'andamento dei moduli dell'app. Tutti i dati sono salvati **offline** in file JSON.
+Android personal-growth app: everything revolves around a **single progress percentage on
+the home screen** that aggregates the state of every module. All data is stored **offline**
+in the app's private storage (SQLite) plus files for photos.
 
-## Stack e versioni
-- Kotlin 2.2.10, Jetpack Compose (BOM 2026.02.01) + Material 3, MVVM
-- AGP 9.5.1, Gradle Kotlin DSL con version catalog (`gradle/libs.versions.toml`)
-- `compileSdk`/`targetSdk` 37, `minSdk` 24, namespace e applicationId `com.example.myapplication`
-- Firebase AI (`com.google.firebase:firebase-ai`) per il riconoscimento cibo
-- Nessun XML layout: solo Compose
+## Stack
 
-## Comandi
+* Kotlin 2.x, Jetpack Compose (BOM 2025.09.00) + Material 3
+* `compileSdk` / `targetSdk` 36, `minSdk` 26, namespace and applicationId
+  `com.progressone.nativeapp` (debug builds use the `.debug` suffix)
+* `com.microsoft.onnxruntime:onnxruntime-android` for the two on-device AI models
+* ML Kit (barcode scanning, subject segmentation) — offline, no Google AI APIs
+* No XML layouts: Compose only
+
+## Commands
+
 ```bash
-./gradlew assembleDebug          # build APK debug
-./gradlew test                   # unit test
-./gradlew installDebug           # installa su emulatore/dispositivo
-adb shell am start -n com.example.myapplication/.MainActivity
+./gradlew :app:assembleDebug          # debug APK
+./gradlew :app:assembleRelease        # release APK (unsigned)
+./gradlew :app:testDebugUnitTest      # JVM unit tests
+./gradlew installDebug                # install on a device/emulator
 ```
-- SDK: `$ANDROID_HOME` = `~/Android/Sdk` (platform 37, build-tools 36, platform-tools 37)
-- Emulatore disponibile: `emulator -avd medium_phone` (KVM attivo, boot ~20 s)
-- `local.properties` contiene `sdk.dir` e non va committato
 
-## Struttura attuale
-- `MainActivity` → `MyApplicationTheme` → `BakingScreen()`
-- Pattern MVVM: `BakingViewModel` + `UiState` (`sealed interface`: `Initial`, `Loading`, `Success`, `Error`)
-- Tema in `app/src/main/java/com/example/myapplication/ui/theme/` (`Color.kt`, `Theme.kt`, `Type.kt`)
-- `1% versions/1%` contiene dump UI/screenshot della versione di riferimento: usalo solo come
-  riferimento visivo, non modificarlo
+* JDK 21 is required (`JAVA_HOME`).
+* `local.properties` holds `sdk.dir` and must never be committed.
 
-## Convenzioni di codice
-- Nomi di classi/funzioni in inglese; **testi UI e commenti in italiano**
-- Una schermata = un file `*Screen.kt` + il suo `*ViewModel.kt`; stato esposto con `StateFlow`
-- Stato immutabile (`data class`), eventi verso il ViewModel, nessuna logica nei composable
-- Riuso del tema Material 3, niente colori hardcoded nelle schermate
-- Persistenza: JSON locale, nessun backend; ogni modulo serializza/deserializza il proprio stato
-- Prima di aggiungere una dipendenza, verifica che sia davvero necessaria
+## The two AI models (both on-device)
 
-## Regole di prodotto (importanti)
-- La percentuale in home è l'aggregato dei moduli; ogni modulo deve esporre il proprio score
-  con la stessa interfaccia, così l'aggregazione resta uniforme
-- **Tracker**: goal di tipo *quit*, *count* e *count* con periodicità settimana/mese/anno;
-  ha uno score separato dal totale
-- **School**: media generale e per materia, prossime verifiche, simulator di impatto voto
-- **Money**: entrate/uscite per categoria, budget mensile — incide sulla percentuale
-- **Task**: promemoria con notifica — completarne di più alza la percentuale
-- **Challenges**: sfide offline — incidono sulla percentuale
-- **Food**: diario alimentare con score interno e modello AI per i macro — incide
-- **Wardrobe**: vestiti, outfit, wishlist, valigie — **non** incide sulla percentuale
-- Onboarding al primo avvio: permette di disattivare tutti i moduli tranne *tracker*;
-  ogni nuovo modulo deve comparire lì
-- Roadmap dichiarata: modello AI cibi (`riconoscitore di cibi.safetensors`), integrazione
-  semplificata di openGym (solo le funzioni coerenti, unita a peso/altezza/cibo),
-  modulo cultura con lettura PDF e TTS in background, blocchi social
+1. `foodvision/Food101Classifier.kt` — Swin Transformer Food-101 (ONNX, 336 MB asset).
+   Input `pixel_values [1,3,224,224]`, output `logits [1,101]`.
+2. `foodvision/MacroModel.kt` — macro estimator (ONNX, 7 MB asset).
+   Input `features [1,2149]`, outputs `nutrition_per100g [1,4]` and `portion_grams [1,1]`.
 
-## Sicurezza e igiene del repo
-- Mai committare API key, `google-services.json`, `local.properties`, keystore
-- Mai committare APK/AAB o modelli (`*.apk`, `*.aab`, `*.safetensors` sono ignorati)
-- Se usi Firebase AI ricordati del permesso `INTERNET` nel manifest
-- Prima di proporre una modifica importante, verifica su emulatore (bug + regressioni)
+Never introduce a cloud AI dependency (no Gemini, no Firebase AI, no API keys): the app
+must stay fully functional offline. If a model cannot be loaded, fall back to the local
+reference table (`foodvision/FoodDatabase.kt`).
+
+The feature hashing in `MacroModel.kt` must stay byte-identical to the Python training
+pipeline; `MacroModelFeatureTest` enforces that.
+
+## Structure
+
+* `MainActivity.kt` — app shell, navigation, module visibility
+* `data/` — `LocalStore` (SQLite), domain models, pure helpers
+* `foodvision/` — the AI models and the nutrition reference table
+* `media/`, `reminders/`, `weather/` — platform integrations
+* `ui/` — screens and the design system (`Design.kt`)
+
+## Conventions
+
+* UI strings are English; the app exposes an Italian localisation for the system language.
+* Keep the home screen minimal: one hero card, the essentials, a compact module grid.
+* New screens must respect the existing design tokens in `ui/Design.kt`.
+* Never commit large binaries: the Food-101 model is downloaded with
+  `scripts/download_food_model.sh`.

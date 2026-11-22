@@ -127,7 +127,7 @@ private fun GymOverview(
                         SmallStat("ALTEZZA", "${heightCm.roundToInt()} cm", Modifier.weight(1f), Mint)
                         SmallStat("BMI", "%.1f".format(Locale.US, bmi), Modifier.weight(1f), Lavender)
                     }
-                    Text("Modifica peso e altezza in Impostazioni → Profilo.", color = Mist,
+                    Text("Edit weight and height in Settings → Profile.", color = Mist,
                         style = MaterialTheme.typography.labelSmall)
                 }
             }

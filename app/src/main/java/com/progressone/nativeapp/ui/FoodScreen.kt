@@ -36,8 +36,8 @@ import com.progressone.nativeapp.data.NutritionTotals
 import com.progressone.nativeapp.foodvision.Food101Classifier
 import com.progressone.nativeapp.foodvision.FoodDatabase
 import com.progressone.nativeapp.foodvision.FoodDishInfo
-import com.progressone.nativeapp.foodvision.MacroAiEstimator
 import com.progressone.nativeapp.foodvision.MacroEstimate
+import com.progressone.nativeapp.foodvision.MacroModel
 import com.progressone.nativeapp.foodvision.NutritionalScoreResult
 import com.progressone.nativeapp.media.ImageProcessor
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
@@ -96,6 +96,8 @@ fun FoodScreen(store: LocalStore) {
     var aiRunning by remember { mutableStateOf(false) }
     var recognizedDishId by rememberSaveable { mutableStateOf("") }
     var aiAvailable by remember { mutableStateOf(true) }
+    // "preparing" | "ready" | "failed" — the photo flow works in every state, it simply waits.
+    var aiModelState by remember { mutableStateOf("preparing") }
     var aiMacros by remember { mutableStateOf<MacroEstimate?>(null) }
     var aiMacroBusy by remember { mutableStateOf(false) }
     var aiMacroStatus by rememberSaveable { mutableStateOf("") }
@@ -112,14 +114,16 @@ fun FoodScreen(store: LocalStore) {
     val targetCarbs = store.setting("food_target_carbs", "260").cleanNumber().takeIf { it > 0 } ?: 260.0
     val targetFat = store.setting("food_target_fat", "70").cleanNumber().takeIf { it > 0 } ?: 70.0
 
-    // Preload ONNX model in background when entering Food Screen
+    // Preload the ONNX model in the background when entering the Food screen.
+    // The first launch copies the 336 MB model into private storage, so this can
+    // take a while; recognition waits for it instead of failing.
     LaunchedEffect(Unit) {
-        withContext(Dispatchers.IO) {
-            val instance = runCatching { Food101Classifier.getInstance(context) }.getOrNull()
-            aiAvailable = instance != null
-            if (!aiAvailable) {
-                aiStatusMessage = "AI food recognition unavailable on this device"
-            }
+        MacroModel.prepare(context)
+        val result = Food101Classifier.prepare(context)
+        aiAvailable = result.isSuccess
+        aiModelState = if (result.isSuccess) "ready" else "failed"
+        if (result.isFailure) {
+            aiStatusMessage = "AI food recognition unavailable: ${result.exceptionOrNull()?.message ?: "model error"}"
         }
     }
 
@@ -171,7 +175,7 @@ fun FoodScreen(store: LocalStore) {
                     "per100carbs" to per100[2].toString(),
                     "per100fat" to per100[3].toString(),
                     "barcode" to "",
-                    "nutritionSource" to if (ai != null) "gemini_ai" else "ai_food101",
+                    "nutritionSource" to if (ai != null) "macro_model" else "ai_food101",
                     "macroSource" to (ai?.source ?: "FoodDatabase")
                 )
                 store.put("food", item)
@@ -199,19 +203,14 @@ fun FoodScreen(store: LocalStore) {
         if (label.isBlank() || aiMacroBusy) return
         scope.launch {
             aiMacroBusy = true
-            aiMacroStatus = "Stima macro con ${MacroAiEstimator.macroModelLabel()}…"
+            aiMacroStatus = "Estimating macros with the on-device model…"
             try {
-                val estimate = if (MacroAiEstimator.isCloudConfigured()) {
-                    withTimeoutOrNull(12_000L) { MacroAiEstimator.estimate(label, dish) }
-                        ?: MacroAiEstimator.offline(label, dish, "Gemini timeout")
-                } else {
-                    MacroAiEstimator.offline(label, dish, "Database nutrizionale offline")
-                }
+                val estimate = MacroModel.estimate(label, dish, numeric(portion))
                 aiMacros = estimate
                 portion = estimate.portionGrams.roundToInt().toString()
-                aiMacroStatus = "Macro da ${estimate.source} · ${estimate.portionLabel}"
+                aiMacroStatus = "Macros from ${estimate.source} · ${estimate.portionLabel}"
             } catch (e: Exception) {
-                aiMacroStatus = "Stima macro non riuscita: ${e.localizedMessage ?: "errore"}"
+                aiMacroStatus = "Macro estimation failed: ${e.localizedMessage ?: "error"}"
             } finally {
                 aiMacroBusy = false
             }
@@ -227,25 +226,26 @@ fun FoodScreen(store: LocalStore) {
     }
 
     fun runAiRecognition(photoPath: String) {
-        if (photoPath.isBlank() || aiRunning) return
-        if (!aiAvailable) {
-            aiStatusMessage = "AI food recognition unavailable on this device (native library issue)"
-            return
-        }
+        if (photoPath.isBlank()) return
+        if (aiRunning) return
         scope.launch {
             aiRunning = true
-            aiStatusMessage = "Analyzing your meal with on-device AI…"
             try {
+                // The model may still be preparing (first launch copies ~336 MB).
+                // Wait for it instead of refusing the scan.
+                if (!aiAvailable) aiStatusMessage = "Preparing on-device AI model…"
+                val classifier = Food101Classifier.prepare(context).getOrElse { error ->
+                    aiAvailable = false
+                    aiModelState = "failed"
+                    throw error
+                }
+                aiAvailable = true
+                aiModelState = "ready"
+                aiStatusMessage = "Analyzing your meal with on-device AI…"
                 val bitmap = withContext(Dispatchers.IO) {
                     decodeFoodPhoto(store.photoFile(photoPath), 500)
                 } ?: error("Could not load photo for AI analysis")
 
-                val classifier = Food101Classifier.getInstance(context) ?: run {
-                    aiAvailable = false
-                    aiStatusMessage = "AI food recognition unavailable on this device"
-                    aiRunning = false
-                    return@launch
-                }
                 val predictions = withContext(Dispatchers.Default) {
                     classifier.classify(bitmap, topK = 4)
                 }
@@ -265,16 +265,11 @@ fun FoodScreen(store: LocalStore) {
                         portion = estimatedPortionGrams.roundToInt().toString()
                         applyPresetDish(dish)
                         // Second model: estimate macros for the recognised dish.
-                        aiMacroStatus = "Stima macro con ${MacroAiEstimator.macroModelLabel()}…"
-                        val estimate = if (MacroAiEstimator.isCloudConfigured()) {
-                            withTimeoutOrNull(12_000L) { MacroAiEstimator.estimate(dish.displayName, dish) }
-                                ?: MacroAiEstimator.offline(dish.displayName, dish, "Gemini timeout")
-                        } else {
-                            MacroAiEstimator.offline(dish.displayName, dish, "Database nutrizionale offline")
-                        }
+                        aiMacroStatus = "Estimating macros with the on-device model…"
+                        val estimate = MacroModel.estimate(dish.displayName, dish)
                         aiMacros = estimate
                         portion = estimate.portionGrams.roundToInt().toString()
-                        aiMacroStatus = "Macro da ${estimate.source} · ${estimate.portionLabel}"
+                        aiMacroStatus = "Macros from ${estimate.source} · ${estimate.portionLabel}"
                         // One-tap auto-save when AI is confident — no typing needed
                         if (top.confidence >= 0.6f && !showEditor) {
                             autoSaveDish = dish
@@ -308,7 +303,7 @@ fun FoodScreen(store: LocalStore) {
         aiPredictions = emptyList()
         aiStatusMessage = ""
         aiMacroStatus = ""
-        aiMacros = record?.takeIf { it.optString("nutritionSource") == "gemini_ai" }?.let { saved ->
+        aiMacros = record?.takeIf { it.optString("nutritionSource") == "macro_model" }?.let { saved ->
             val grams = saved.optDouble("portionGrams", 0.0)
             if (grams > 0) MacroEstimate(
                 calories = saved.optDouble("kcal", 0.0),
@@ -316,8 +311,8 @@ fun FoodScreen(store: LocalStore) {
                 carbs = saved.optDouble("carbs", 0.0),
                 fat = saved.optDouble("fat", 0.0),
                 portionGrams = grams,
-                portionLabel = saved.optString("portion", "porzione salvata"),
-                source = saved.optString("macroSource", "Gemini (salvato)")
+                portionLabel = saved.optString("portion", "saved portion"),
+                source = saved.optString("macroSource", "On-device macro model (saved)")
             ) else null
         }
         recognizedDishId = record?.optString("dishId").orEmpty()
@@ -343,15 +338,15 @@ fun FoodScreen(store: LocalStore) {
         if (uri != null) {
             showEditor = true
             scope.launch {
-                aiRunning = true
                 try {
                     val bitmap = ImageProcessor.decode(context, uri)
                     val savedName = saveBitmap(bitmap)
                     photo = savedName
+                    // runAiRecognition owns the busy flag, otherwise the scan would be skipped.
                     runAiRecognition(savedName)
                 } catch (e: Exception) {
                     aiStatusMessage = "Unable to read photo: ${e.localizedMessage}"
-                } finally { aiRunning = false }
+                }
             }
         }
     }
@@ -477,19 +472,17 @@ fun FoodScreen(store: LocalStore) {
 
         item {
             FrostCard(Modifier.fillMaxWidth()) {
-                Eyebrow("DUE MODELLI AI · VERIFICA", Mint)
-                Text("1. Vision · ${MacroAiEstimator.VISION_MODEL_LABEL}",
+                Eyebrow("TWO ON-DEVICE AI MODELS", Mint)
+                Text("1. Vision · ${MacroModel.VISION_MODEL_LABEL}",
                     style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                Text("Riconosce il piatto dalla foto, direttamente sul telefono.",
+                Text("Recognises the dish from the photo, directly on the phone.",
                     color = Mist, style = MaterialTheme.typography.bodySmall)
                 HorizontalDivider(color = GlassLight)
-                Text("2. Macro · ${MacroAiEstimator.macroModelLabel()}",
+                Text("2. Macro · ${MacroModel.MODEL_LABEL}",
                     style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
                 Text(
-                    if (MacroAiEstimator.isCloudConfigured())
-                        "Gemini stima calorie, proteine, carboidrati, grassi e porzione per il piatto riconosciuto."
-                    else
-                        "Nessuna GEMINI_API_KEY configurata: la stima usa il database nutrizionale locale, non un secondo modello AI.",
+                    "A small neural network bundled in the app estimates calories, protein, " +
+                        "carbs, fat and the portion size. No API key, no cloud, fully offline.",
                     color = Mist, style = MaterialTheme.typography.bodySmall
                 )
                 if (aiMacroStatus.isNotBlank()) {
@@ -544,15 +537,25 @@ fun FoodScreen(store: LocalStore) {
                     modifier = Modifier.fillMaxWidth().height(7.dp),
                     color = if (totalKcal <= targetKcal) Mint else Lavender
                 )
-                TextButton(onClick = { targetsEditor = true }) { Text("Modifica target giornalieri") }
+                TextButton(onClick = { targetsEditor = true }) { Text("Edit daily targets") }
 
-                Button(onClick = { loadEditor() }, modifier = Modifier.fillMaxWidth(), enabled = aiAvailable) {
+                Button(onClick = { loadEditor() }, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Rounded.CameraAlt, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
-                    Text(if (aiAvailable) "Photo Meal (AI scans automatically)" else "Photo Meal (AI unavailable)")
+                    Text(
+                        when (aiModelState) {
+                            "ready" -> "Photo Meal (AI scans automatically)"
+                            "preparing" -> "Photo Meal (AI model preparing…)"
+                            else -> "Photo Meal (AI unavailable — manual entry works)"
+                        }
+                    )
                 }
-                if (!aiAvailable) {
-                    Text("AI recognition not available on this device. Manual entry still works.", color = Mist, style = MaterialTheme.typography.bodySmall)
+                if (aiModelState == "failed") {
+                    Text(
+                        "AI recognition unavailable on this device. Manual entry still works.",
+                        color = Mist,
+                        style = MaterialTheme.typography.bodySmall
+                    )
                 }
             }
         }
@@ -600,10 +603,10 @@ fun FoodScreen(store: LocalStore) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Eyebrow(meal.optString("meal", "Meal"))
                             val source = meal.optString("nutritionSource")
-                            if (source == "ai_food101" || source == "gemini_ai") {
+                            if (source == "ai_food101" || source == "macro_model") {
                                 Spacer(Modifier.width(6.dp))
                                 Surface(shape = RoundedCornerShape(4.dp), color = Mint.copy(alpha = 0.2f)) {
-                                    Text(if (source == "gemini_ai") " GEMINI " else " AI ",
+                                    Text(if (source == "macro_model") " MACRO AI " else " VISION AI ",
                                         style = MaterialTheme.typography.labelSmall, color = Mint,
                                         fontWeight = FontWeight.Bold)
                                 }
@@ -794,7 +797,7 @@ fun FoodScreen(store: LocalStore) {
                     ) {
                         Icon(Icons.Rounded.AutoAwesome, null, Modifier.size(18.dp))
                         Spacer(Modifier.width(7.dp))
-                        Text(if (aiMacroBusy) "Stima macro in corso…" else "Stima macro con AI")
+                        Text(if (aiMacroBusy) "Estimating macros…" else "Estimate macros with AI")
                     }
                     if (aiMacroBusy) LinearProgressIndicator(Modifier.fillMaxWidth(), color = Ice)
                     if (aiMacroStatus.isNotBlank()) {
@@ -908,7 +911,7 @@ fun FoodScreen(store: LocalStore) {
                                 "per100fat" to per100fat.toString(),
                                 "barcode" to barcode,
                                 "nutritionSource" to if (totals == null) "unverified"
-                                    else if (aiMacros != null) "gemini_ai"
+                                    else if (aiMacros != null) "macro_model"
                                     else if (recognizedDishId.isNotBlank()) "ai_food101"
                                     else if (fromBarcode) "openfoodfacts"
                                     else "label",
@@ -934,8 +937,8 @@ fun FoodScreen(store: LocalStore) {
         var proteinText by remember { mutableStateOf(targetProtein.roundToInt().toString()) }
         var carbsText by remember { mutableStateOf(targetCarbs.roundToInt().toString()) }
         var fatText by remember { mutableStateOf(targetFat.roundToInt().toString()) }
-        BottomSheetFrame("Target giornalieri", { targetsEditor = false }) {
-            Text("Valori usati per la barra dei target e per il riepilogo giornaliero.",
+        BottomSheetFrame("Daily targets", { targetsEditor = false }) {
+            Text("Values used for the target bar and the daily summary.",
                 color = Mist, style = MaterialTheme.typography.bodySmall)
             FormField("Calorie (kcal)", kcalText, { kcalText = it.take(5) })
             FormField("Proteine (g)", proteinText, { proteinText = it.take(5) })
@@ -947,7 +950,7 @@ fun FoodScreen(store: LocalStore) {
                 store.setSetting("food_target_carbs", carbsText.cleanNumber().coerceAtLeast(0.0).toString())
                 store.setSetting("food_target_fat", fatText.cleanNumber().coerceAtLeast(0.0).toString())
                 targetsEditor = false
-            }, Modifier.fillMaxWidth()) { Text("Salva target") }
+            }, Modifier.fillMaxWidth()) { Text("Save targets") }
         }
     }
 }

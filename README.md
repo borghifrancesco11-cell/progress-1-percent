@@ -1,89 +1,112 @@
 # Progress 1 Percent
 
-[![Version](https://img.shields.io/badge/version-1.2.0-blue)](https://github.com/borghifrancesco11-cell/progress-1-percent)
+[![Version](https://img.shields.io/badge/version-1.3.0-blue)](https://github.com/borghifrancesco11-cell/progress-1-percent/releases)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.x-0098D1?logo=kotlin)
 ![Jetpack Compose](https://img.shields.io/badge/UI-Jetpack%20Compose-4285F4?logo=android)
 ![Material 3](https://img.shields.io/badge/Design-Material%203-6200EE?logo=material-design)
 ![minSdk](https://img.shields.io/badge/minSdk-26-green)
+![Offline](https://img.shields.io/badge/data-off%20first-2ea44f)
 
-App Android **offline-first** per il miglioramento personale: alimentazione, palestra,
-sonno, finanze, studio, abitudini, guardaroba e social, tutto aggregato in un unico
-punteggio di progresso giornaliero.
+**Progress 1 Percent** is an offline-first Android app for personal growth: nutrition, gym,
+sleep, money, study, habits, wardrobe and social life, all aggregated into a single daily
+progress score.
 
-Questa è la versione **1.2.0**, nata dall'APK nativo più recente (`com.progressone.nativeapp`)
-con l'aggiunta delle funzioni che esistevano solo nella vecchia versione pubblicata su GitHub.
-
----
-
-## 🤖 I due modelli AI (risposta breve: sì, ma con una precisazione)
-
-L'app ha **due percorsi AI distinti** nel modulo Alimentazione:
-
-| # | Modello | Dove gira | Cosa fa | Quando è attivo |
-|---|---------|-----------|---------|-----------------|
-| 1 | **Swin Transformer Food-101** (ONNX Runtime) | Sul telefono, offline | Riconosce il **cibo dalla foto** tra 101 categorie | Sempre (se il modello ONNX è presente negli assets) |
-| 2 | **Google Gemini 1.5 Flash** | Cloud | Stima **calorie e macro** (proteine, carboidrati, grassi, grammi) del piatto riconosciuto | Solo se è configurata `GEMINI_API_KEY` |
-
-Se la chiave Gemini non è configurata (o la rete non è disponibile), il secondo percorso
-**non è un modello AI**: usa il database nutrizionale offline (`FoodDatabase`) con valori
-deterministici. La card "Modelli AI" nella schermata Alimentazione mostra in tempo reale
-quale dei due percorsi è realmente attivo.
-
-> ⚠️ Nell'APK originale che avevi installato c'era **solo** il modello 1 (vision).
-> I macro venivano presi dal database locale. Il modello 2 esisteva solo nella vecchia
-> versione GitHub: in questa 1.2.0 è stato riportato e integrato.
+This is version **1.3.0**, built on the newer native app (`com.progressone.nativeapp`) and
+extended with the features that only existed in the older GitHub release.
 
 ---
 
-## ✨ Funzionalità
+## 🤖 Two AI models — the short answer
 
-### Alimentazione
-- 📷 **Riconoscimento cibo da foto** con Swin Food-101 (on-device, offline)
-- 🧠 **Stima macro con Gemini 1.5 Flash** (opzionale, cloud) con fallback offline
-- 🎯 Obiettivi giornalieri di calorie e macro modificabili
-- 🏷️ Badge che indicano la fonte di ogni stima (AI cloud / database offline)
-- 🥗 Database nutrizionale locale per pasti inseriti a mano
-- 📊 Barcode scanning per prodotti confezionati (ML Kit, offline)
+**Yes, the app ships two different AI models and both run on the phone. No cloud, no API key.**
 
-### Palestra
-- Schede, serie/ripetizioni, storico allenamenti
-- Peso, altezza, **BMI** e composizione corporea
-- Obiettivi di forza e progressione
+| # | Model | Runs on | Purpose | Size |
+|---|-------|---------|---------|------|
+| 1 | **Swin Transformer Food-101** (ONNX Runtime) | Device, offline | Recognises the **dish in the photo** across 101 Food-101 categories | ~336 MB |
+| 2 | **Macro estimator** — 3-hidden-layer neural network (ONNX Runtime) | Device, offline | Estimates **calories and macros** (protein, carbs, fat) and the portion size | ~7 MB |
 
-### Sonno e recupero
-- Registrazione ore dormite e qualità
-- Punteggio di recupero integrato nel progresso giornaliero
+The Food screen shows a "Two on-device AI models" card that states which models are active,
+and every logged meal carries a badge (`VISION AI` / `MACRO AI`) describing how its numbers
+were produced.
 
-### Studio
-- Materie, voti e media
-- **Simulatore di voto ipotetico** ("e se prendessi X?")
+### Model 1 — food recognition (photo → dish)
 
-### Finanze
-- Entrate/uscite per categoria
-- Budget mensile e risparmio
+* `onnx-community/swin-finetuned-food101-ONNX` (FP32), shipped inside the APK as an
+  uncompressed asset.
+* Preprocessing matches the official model card exactly: RGB, resize to 224×224 (bilinear),
+  scale by 1/255, normalise with the ImageNet mean/std, NCHW float32.
+* The class list in `app/src/main/assets/food101_labels.txt` matches the model `config.json`
+  label order one-to-one.
 
-### Abitudini e tracker
-- Tracker giornaliero / settimanale / mensile / **annuale**
-- Streak e promemoria
+### Model 2 — macro estimation (dish → calories & macros)
 
-### Guardaroba
-- Armadio digitale, mix & match outfit
-- **Generazione outfit in base al meteo** (temperatura e condizioni)
+* A feed-forward network (2048 hashed text features + a one-hot Food-101 class → 512/256/128
+  hidden units) exported to ONNX and bundled as `app/src/main/assets/macro_estimator.onnx`.
+* It was trained in this repository's ML pipeline on **29 700+ labelled food entries**:
+  Open Food Facts products, a standardised nutrition dataset, and the curated USDA-style
+  reference values of the 101 Food-101 dishes.
+* Measured quality: **~54 kcal/100 g** mean absolute error on held-out foods (a constant
+  "average food" predictor is off by ~149 kcal) and **~2.5 kcal/100 g** on the 101 Food-101
+  dishes.
+* The Kotlin featurisation is covered by unit tests that compare the hashing output with the
+  values produced by the Python training script, so the app feeds the network exactly what it
+  was trained on.
 
-### Altro
-- Punteggio di progresso aggregato (0–100%)
-- Tema OLED dark, UI completamente in italiano
-- Prima configurazione guidata e tutorial
-- Funziona **senza account e senza cloud** (tranne la stima macro opzionale)
+> The older APK only had **one** model: the vision network. Macro values came from a static
+> lookup table. The second model was missing entirely. This release adds it — integrated,
+> offline and free of any Google API.
 
 ---
 
-## 🏗️ Architettura
+## ✨ Features
+
+### Nutrition
+* 📷 Photo recognition with Swin Food-101 (on-device, offline)
+* 🧠 Macro estimation with the bundled neural network (on-device, offline)
+* 🎯 Editable daily calorie and macro targets
+* 🏷️ `VISION AI` / `MACRO AI` badges on every logged meal
+* 🥗 Local nutrition reference table for manually entered foods
+* 📊 Barcode scanning for packaged products (ML Kit, offline)
+
+### Gym
+* Workouts, sets and repetitions, training history
+* Weight, height, **BMI** and body composition
+* Strength goals and progression
+
+### Sleep & recovery
+* Hours slept and sleep quality
+* Recovery score feeding the daily progress score
+
+### School
+* Subjects, grades and weighted average
+* **Hypothetical grade simulator** ("what if I get an X?")
+
+### Money
+* Income and expenses by category
+* Monthly budget and savings
+
+### Habits & tracker
+* Daily / weekly / monthly / **yearly** tracker frequency
+* Streaks and reminders
+
+### Wardrobe
+* Digital wardrobe, mix & match outfits
+* **Weather-aware outfit generation** (temperature and conditions)
+
+### Other
+* Aggregated progress score (0–100)
+* OLED dark theme, English UI
+* First-run setup and tutorial
+* Works **without an account and without the cloud** — everything stays on the device
+
+---
+
+## 🏗️ Architecture
 
 ```
 app/src/main/java/com/progressone/nativeapp/
 ├── MainActivity.kt
-├── data/                     # Store locale, modelli, calcoli, logica pura
+├── data/                     # local store, domain models, pure logic
 │   ├── LocalStore.kt
 │   ├── Metrics.kt
 │   ├── NutritionMath.kt
@@ -91,14 +114,14 @@ app/src/main/java/com/progressone/nativeapp/
 │   ├── ProgressScore.kt
 │   └── ...
 ├── foodvision/
-│   ├── Food101Classifier.kt  # Modello 1: Swin Food-101 ONNX (on-device)
-│   ├── FoodDatabase.kt       # Fallback nutrizionale offline
-│   └── MacroAiEstimator.kt   # Modello 2: Gemini 1.5 Flash + fallback
+│   ├── Food101Classifier.kt  # model 1: Swin Food-101 ONNX (on-device)
+│   ├── MacroModel.kt         # model 2: macro estimator ONNX (on-device)
+│   └── FoodDatabase.kt       # reference nutrition table + scoring
 ├── media/ImageProcessor.kt
 ├── reminders/ReminderScheduler.kt
 ├── weather/WeatherService.kt
-└── ui/                       # Schermate Jetpack Compose
-    ├── TodayScreen.kt
+└── ui/                       # Jetpack Compose screens
+    ├── TodayScreen.kt        # minimal home
     ├── FoodScreen.kt
     ├── GymScreen.kt
     ├── SleepScreen.kt
@@ -114,74 +137,71 @@ app/src/main/java/com/progressone/nativeapp/
 
 ## 🚀 Build
 
-### Requisiti
-- JDK **21**
-- Android SDK con API 36
-- Modello ONNX Food-101 scaricato (vedi sotto)
+### Requirements
+* JDK **21**
+* Android SDK with API 36
+* The Food-101 ONNX model downloaded (see below)
 
 ```bash
-# 1. Scarica il modello vision (336 MB, non incluso nel repo)
+# 1. Download the vision model (~336 MB, not stored in git)
 ./scripts/download_food_model.sh
 
-# 2. Configura il percorso dell'SDK
+# 2. Point the build at your SDK
 cp local.properties.example local.properties
-# poi imposta sdk.dir=/percorso/Android/Sdk
+# then set sdk.dir=/path/to/Android/Sdk
 
-# 3. Build debug
+# 3. Debug build
 ./gradlew :app:assembleDebug
 
-# 4. Build release (firmata con la tua keystore)
+# 4. Release build (sign it with your own keystore before publishing)
 ./gradlew :app:assembleRelease
 ```
 
-L'APK di debug ha package `com.progressone.nativeapp.debug` e può convivere con la
-versione release `com.progressone.nativeapp`.
+The debug APK uses the package `com.progressone.nativeapp.debug` and can be installed
+side by side with the release build `com.progressone.nativeapp`.
 
-### Modello vision
+### Model assets
 
-Il file `app/src/main/assets/swin_food101_fp32.onnx` (~336 MB) è escluso da git perché
-troppo grande. Viene scaricato da Hugging Face:
+| File | Size | Source |
+|------|------|--------|
+| `app/src/main/assets/swin_food101_fp32.onnx` | ~336 MB | `https://huggingface.co/onnx-community/swin-finetuned-food101-ONNX/resolve/main/onnx/model.onnx` |
+| `app/src/main/assets/macro_estimator.onnx` | ~7 MB | trained in this repository (see `docs/AI_MODELS.md`) |
+| `app/src/main/assets/food101_labels.txt` | 1 KB | the 101 Food-101 class names |
 
-```
-https://huggingface.co/onnx-community/swin-finetuned-food101-ONNX/resolve/main/onnx/model.onnx
-```
-
-Le etichette delle 101 classi sono in `app/src/main/assets/food101_labels.txt`.
-
----
-
-## 🔑 Configurazione Gemini (opzionale)
-
-La stima macro cloud usa Google Gemini 1.5 Flash. La chiave **non va mai committata**:
-inseriscila in `local.properties` (già in `.gitignore`):
-
-```properties
-GEMINI_API_KEY=la_tua_chiave_qui
-```
-
-Senza chiave l'app resta pienamente funzionante e usa il database nutrizionale offline.
-La chiave viene letta a build time e inserita in `BuildConfig.GEMINI_API_KEY`.
+The 336 MB file is excluded from git; `scripts/download_food_model.sh` fetches it. Both
+models are also attached to the GitHub release.
 
 ---
 
-## 📱 Moduli
+## 📄 Documentation
 
-| Modulo | Stato | Note |
-|--------|-------|------|
-| Alimentazione | ✅ | Vision + macro AI + obiettivi |
-| Palestra | ✅ | BMI e storico |
-| Sonno | ✅ | Punteggio recupero |
-| Studio | ✅ | Simulatore voto |
-| Finanze | ✅ | Budget |
-| Tracker | ✅ | Giorno/settimana/mese/anno |
-| Guardaroba | ✅ | Outfit meteo |
-| Social | ✅ | Challenge |
-| Compiti | ✅ | — |
-
-I moduli possono essere attivati/disattivati dalle Impostazioni.
+* [docs/AI_MODELS.md](docs/AI_MODELS.md) — the two models, the training pipeline, the metrics
+* [docs/BUILD.md](docs/BUILD.md) — build, signing and release instructions
+* [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — module map and data flow
 
 ---
 
-## 📄 Licenza
+## 📱 Modules
 
-Progetto personale. Vedi il repository per i dettagli.
+| Module | Status | Notes |
+|--------|--------|-------|
+| Food | ✅ | Vision + macro AI + targets |
+| Gym | ✅ | BMI and history |
+| Sleep | ✅ | Recovery score |
+| School | ✅ | Grade simulator |
+| Money | ✅ | Budget |
+| Tracker | ✅ | Day/week/month/year |
+| Wardrobe | ✅ | Weather outfits |
+| Social | ✅ | Digital wellbeing detox |
+| Tasks | ✅ | — |
+
+Modules can be switched on and off in Settings; disabling a module hides it from the app
+and the home screen without deleting any data or photo.
+
+---
+
+## 🔒 Privacy
+
+Everything is stored locally in the app's private storage. The only optional network calls
+are the weather lookup (Open-Meteo) and the Open Food Facts barcode lookup. The AI models
+never leave the device.

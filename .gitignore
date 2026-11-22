@@ -6,9 +6,10 @@ build/
 **/build/
 .DS_Store
 
-# Large binary assets: download the Food-101 ONNX model with
+# Large binary asset: download the Food-101 ONNX model with
 #   ./scripts/download_food_model.sh
-app/src/main/assets/*.onnx
+# The macro estimator (7 MB) IS committed on purpose.
+app/src/main/assets/swin_food101_fp32.onnx
 
 # Generated build artefacts / dumps
 app/mapping.txt

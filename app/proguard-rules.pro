@@ -138,7 +138,3 @@
 # ============================================
 # END OF PROGUARD RULES
 # ============================================
-
-# Gemini's Ktor engine probes desktop debug APIs that do not exist on Android.
--dontwarn java.lang.management.ManagementFactory
--dontwarn java.lang.management.RuntimeMXBean

@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.progressone.nativeapp.data.LocalStore
 import com.progressone.nativeapp.data.Metrics
@@ -177,7 +178,7 @@ fun TodayScreen(
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         // Date header
         item {
@@ -188,7 +189,7 @@ fun TodayScreen(
             )
         }
 
-        // ---- HERO: Score of the week card ----
+        // ---- HERO: one card with the score, the ring and the three key numbers ----
         item {
             val animatedScore by animateIntAsState(
                 targetValue = weeklyComposite,
@@ -201,6 +202,7 @@ fun TodayScreen(
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                     modifier = Modifier.fillMaxWidth()
                 ) {
+                    ProgressRing(animatedScore / 100f, Modifier.size(96.dp), sizeDp = 96.dp)
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Eyebrow("SCORE OF THE WEEK", Mint)
                         Text(
@@ -211,41 +213,72 @@ fun TodayScreen(
                         )
                         Text(
                             if (contributions.isEmpty()) "Log a goal or a meal to start your week"
-                            else "Live average of ${contributions.joinToString(", ") { it.first }}",
+                            else contributions.joinToString(", ") { it.first },
                             color = Mist,
                             style = MaterialTheme.typography.bodySmall,
                             maxLines = 2
                         )
                     }
-                    ProgressRing(animatedScore / 100f, Modifier.size(110.dp), sizeDp = 110.dp)
+                }
+                Spacer(Modifier.height(12.dp))
+                HorizontalDivider(color = GlassLight)
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    SmallStat(
+                        "GOALS",
+                        if (goalsTodayTotal == 0) "—" else "$goalsTodayDone/$goalsTodayTotal",
+                        Modifier.weight(1f),
+                        Ice
+                    )
+                    SmallStat("TASKS", "$todayTasksLeft", Modifier.weight(1f), Mint)
+                    SmallStat(
+                        "STREAK",
+                        "${activeGoals.maxOfOrNull { Metrics.streak(it, snapshot.logs, todayIso) } ?: 0}d",
+                        Modifier.weight(1f),
+                        Lavender
+                    )
                 }
             }
         }
 
-        // Today at a glance
+        // ---- TODAY: the three things that matter right now ----
         item {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                SmallStat(
-                    "TODAY",
-                    if (goalsTodayTotal == 0) "No goals" else "$goalsTodayDone/$goalsTodayTotal",
-                    Modifier.weight(1f),
-                    Ice
-                )
-                SmallStat("TASKS LEFT", "$todayTasksLeft", Modifier.weight(1f), Mint)
-                SmallStat(
-                    "STREAK",
-                    "${activeGoals.maxOfOrNull { Metrics.streak(it, snapshot.logs, todayIso) } ?: 0}d",
-                    Modifier.weight(1f),
-                    Lavender
-                )
+            SectionHeading("Today", "your essentials")
+        }
+
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                HomeRow(
+                    "Food",
+                    Icons.Rounded.Restaurant,
+                    when {
+                        todayMeals.isEmpty() -> "No meal logged yet"
+                        else -> "${todayMeals.size} meal${if (todayMeals.size != 1) "s" else ""} · ${todayMeals.sumOf { it.optDouble("kcal", 0.0) }.roundToInt()} kcal"
+                    }
+                ) { onOpen("food") }
+
+                HomeRow(
+                    "Tracker",
+                    Icons.Rounded.TrackChanges,
+                    if (goalsTodayTotal == 0) "No goals due today"
+                    else "$goalsTodayDone of $goalsTodayTotal goals · 7-day ${weeklyAvgTracker}%"
+                ) { onOpen("track") }
+
+                HomeRow(
+                    "Tasks",
+                    Icons.Rounded.Checklist,
+                    if (todayTasksLeft == 0) "Nothing left today" else "$todayTasksLeft remaining"
+                ) { onOpen("tasks") }
             }
         }
 
-        // Last 7 days consistency
+        // ---- WEEK: consistency of the tracker ----
+        item {
+            SectionHeading("Week", "tracker consistency")
+        }
+
         item {
             FrostCard(Modifier.fillMaxWidth()) {
-                SectionHeading("Last 7 days", "Tracker consistency, 0-100")
-                Spacer(Modifier.height(4.dp))
                 Row(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.Bottom,
@@ -270,10 +303,10 @@ fun TodayScreen(
                                 fontWeight = if (isToday) FontWeight.Bold else FontWeight.Normal
                             )
                             Spacer(Modifier.height(4.dp))
-                            Box(modifier = Modifier.height(64.dp), contentAlignment = Alignment.BottomCenter) {
+                            Box(modifier = Modifier.height(56.dp), contentAlignment = Alignment.BottomCenter) {
                                 Box(
                                     modifier = Modifier
-                                        .width(26.dp)
+                                        .width(22.dp)
                                         .fillMaxHeight(height.coerceAtLeast(0.05f))
                                         .background(
                                             if (isToday) Ice else Ice.copy(alpha = 0.32f),
@@ -294,142 +327,170 @@ fun TodayScreen(
             }
         }
 
-        // Food snapshot (only if meals logged today)
-        if (todayMeals.isNotEmpty()) {
-            val todayKcal = todayMeals.sumOf { it.optDouble("kcal", 0.0) }
-            item {
-                FrostCard(Modifier.fillMaxWidth(), onClick = { onOpen("food") }) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        Icon(Icons.Rounded.LocalDining, contentDescription = null, tint = Ice, modifier = Modifier.size(20.dp))
-                        Column(Modifier.weight(1f)) {
-                            Eyebrow("TODAY'S FOOD", Mint)
-                            Text(
-                                "${todayMeals.size} meal${if (todayMeals.size != 1) "s" else ""} · ${todayKcal.roundToInt()} kcal",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onBackground
-                            )
-                            Text("Tap to log more with AI photo recognition", color = Mist, style = MaterialTheme.typography.bodySmall)
+        // ---- MODULES: uniform compact grid, every module still one tap away ----
+        item {
+            SectionHeading("Modules", "tap to open")
+        }
+
+        item {
+            val modules = buildList {
+                if (isEnabled("food")) {
+                    add(
+                        HomeModule(
+                            "Food", Icons.Rounded.Restaurant,
+                            if (todayMeals.isEmpty()) "0 / 3 meals today" else "${todayMeals.size} / 3 meals today",
+                            "food"
+                        )
+                    )
+                }
+                if (isEnabled("wardrobe")) {
+                    add(
+                        HomeModule(
+                            "Wardrobe", Icons.Rounded.Checkroom,
+                            when {
+                                snapshot.outfits.isNotEmpty() -> "${snapshot.outfits.size} outfits"
+                                snapshot.garments.isNotEmpty() -> "${snapshot.garments.size} garments"
+                                else -> "Build it"
+                            },
+                            "wardrobe"
+                        )
+                    )
+                }
+                if (isEnabled("gym")) {
+                    add(
+                        HomeModule(
+                            "Gym", Icons.Rounded.FitnessCenter,
+                            when {
+                                gymData.todayCount > 0 -> "Done today"
+                                gymData.weekCount > 0 -> "${gymData.weekCount} this week"
+                                else -> "Start"
+                            },
+                            "gym"
+                        )
+                    )
+                }
+                if (isEnabled("sleep")) {
+                    add(
+                        HomeModule(
+                            "Sleep", Icons.Rounded.Bedtime,
+                            when {
+                                sleepData.minutes > 0 -> SleepUtils.formatDuration(sleepData.minutes)
+                                sleepData.weekNights > 0 -> "avg ${SleepUtils.formatDuration(sleepData.weekAverage)}"
+                                else -> "Log"
+                            },
+                            "sleep"
+                        )
+                    )
+                }
+                if (isEnabled("school")) {
+                    val avg = Metrics.weightedAverage(snapshot.grades)
+                    add(
+                        HomeModule(
+                            "School", Icons.Rounded.School,
+                            when {
+                                avg != null -> "Avg %.1f".format(Locale.US, avg)
+                                upcomingExams > 0 -> "$upcomingExams exams"
+                                else -> "Add subject"
+                            },
+                            "school"
+                        )
+                    )
+                }
+                if (isEnabled("money")) {
+                    add(
+                        HomeModule(
+                            "Money", Icons.Rounded.AccountBalanceWallet,
+                            when {
+                                moneyData.spentToday > 0 -> "${euro(moneyData.spentToday)} today"
+                                moneyData.budget > 0 -> "${euro(moneyData.spent)} / ${euro(moneyData.budget)}"
+                                moneyData.spent > 0 -> "${euro(moneyData.spent)} this month"
+                                else -> "Add expense"
+                            },
+                            "money"
+                        )
+                    )
+                }
+                if (isEnabled("social")) {
+                    add(HomeModule("Detox", Icons.Rounded.SelfImprovement, socialSummary, "social"))
+                }
+                if (isEnabled("challenges")) {
+                    add(
+                        HomeModule(
+                            "Challenges", Icons.Rounded.EmojiEvents,
+                            if (snapshot.challenges.isEmpty()) "None yet"
+                            else "${snapshot.challenges.count { it.optBoolean("finished") }} of ${snapshot.challenges.size} done",
+                            "challenges"
+                        )
+                    )
+                }
+            }
+
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                modules.chunked(2).forEach { pair ->
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        pair.forEach { module ->
+                            HomeTile(module, Modifier.weight(1f)) { onOpen(module.route) }
                         }
-                        Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = Mist)
+                        if (pair.size == 1) Spacer(Modifier.weight(1f))
                     }
                 }
             }
-        }
-
-        // ---- Navigation grid — Your space ----
-        item {
-            Text("YOUR SPACE", style = MaterialTheme.typography.labelSmall, color = Mist)
-        }
-
-        // Tracker full width
-        item {
-            val subtitle = if (goalsTodayTotal == 0) "No goals due today · add your first"
-            else "$goalsTodayDone of $goalsTodayTotal goals today · 7-day ${weeklyAvgTracker}%"
-            HomeLinkWithSubtitle("Tracker", Icons.Rounded.TrackChanges, subtitle, Modifier.fillMaxWidth()) { onOpen("track") }
-        }
-
-        // Food / Wardrobe
-        if (isEnabled("food") || isEnabled("wardrobe")) {
-            item {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                    if (isEnabled("food")) {
-                        val info = if (todayMeals.isNotEmpty()) "${todayMeals.size} / 3 meals today" else "0 / 3 meals today"
-                        HomeLinkWithSubtitle("Food", Icons.Rounded.Restaurant, info, Modifier.weight(1f)) { onOpen("food") }
-                    } else Spacer(Modifier.weight(1f))
-                    if (isEnabled("wardrobe")) {
-                        val info = when {
-                            snapshot.outfits.isNotEmpty() -> "${snapshot.outfits.size} outfits saved"
-                            snapshot.garments.isNotEmpty() -> "${snapshot.garments.size} garments"
-                            else -> "Build your wardrobe"
-                        }
-                        HomeLinkWithSubtitle("Wardrobe", Icons.Rounded.Checkroom, info, Modifier.weight(1f)) { onOpen("wardrobe") }
-                    } else Spacer(Modifier.weight(1f))
-                }
-            }
-        }
-
-        // Gym / Sleep
-        if (isEnabled("gym") || isEnabled("sleep")) {
-            item {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                    if (isEnabled("gym")) {
-                        val info = when {
-                            gymData.todayCount > 0 -> "Done today · ${gymData.weekCount}/week"
-                            gymData.weekCount > 0 -> "${gymData.weekCount} sessions this week"
-                            else -> "Start your first session"
-                        }
-                        HomeLinkWithSubtitle("Gym", Icons.Rounded.FitnessCenter, info, Modifier.weight(1f)) { onOpen("gym") }
-                    } else Spacer(Modifier.weight(1f))
-                    if (isEnabled("sleep")) {
-                        val info = when {
-                            sleepData.minutes > 0 -> "${SleepUtils.formatDuration(sleepData.minutes)} last night"
-                            sleepData.weekNights > 0 -> "Avg ${SleepUtils.formatDuration(sleepData.weekAverage)}"
-                            else -> "Record last night"
-                        }
-                        HomeLinkWithSubtitle("Sleep", Icons.Rounded.Bedtime, info, Modifier.weight(1f)) { onOpen("sleep") }
-                    } else Spacer(Modifier.weight(1f))
-                }
-            }
-        }
-
-        // Social / Challenges
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                if (isEnabled("social")) {
-                    HomeLinkWithSubtitle("Social detox", Icons.Rounded.SelfImprovement, socialSummary, Modifier.weight(1f)) { onOpen("social") }
-                } else Spacer(Modifier.weight(1f))
-                if (isEnabled("challenges")) {
-                    val info = if (snapshot.challenges.isEmpty()) "No challenges yet"
-                    else "${snapshot.challenges.count { it.optBoolean("finished") }} of ${snapshot.challenges.size} done"
-                    HomeLinkWithSubtitle("Challenges", Icons.Rounded.EmojiEvents, info, Modifier.weight(1f)) { onOpen("challenges") }
-                } else Spacer(Modifier.weight(1f))
-            }
-        }
-
-        // School / Money
-        if (isEnabled("school") || isEnabled("money")) {
-            item {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-                    if (isEnabled("school")) {
-                        val avg = Metrics.weightedAverage(snapshot.grades)
-                        val info = when {
-                            avg != null -> "Avg %.1f".format(Locale.US, avg)
-                            upcomingExams > 0 -> "$upcomingExams exams upcoming"
-                            else -> "Add a subject"
-                        }
-                        HomeLinkWithSubtitle("School", Icons.Rounded.School, info, Modifier.weight(1f)) { onOpen("school") }
-                    } else Spacer(Modifier.weight(1f))
-                    if (isEnabled("money")) {
-                        val info = when {
-                            moneyData.spentToday > 0 -> "${euro(moneyData.spentToday)} today"
-                            moneyData.budget > 0 -> "${euro(moneyData.spent)} / ${euro(moneyData.budget)}"
-                            moneyData.spent > 0 -> "${euro(moneyData.spent)} this month"
-                            else -> "Log your first expense"
-                        }
-                        HomeLinkWithSubtitle("Money", Icons.Rounded.AccountBalanceWallet, info, Modifier.weight(1f)) { onOpen("money") }
-                    } else Spacer(Modifier.weight(1f))
-                }
-            }
-        }
-
-        // Tasks full width
-        item {
-            HomeLinkWithSubtitle(
-                "Tasks",
-                Icons.Rounded.Checklist,
-                if (todayTasksLeft == 0) "Nothing left today" else "$todayTasksLeft remaining",
-                Modifier.fillMaxWidth()
-            ) { onOpen("tasks") }
         }
 
         item { Spacer(Modifier.height(24.dp)) }
     }
 }
 
+private data class HomeModule(
+    val name: String,
+    val icon: ImageVector,
+    val subtitle: String,
+    val route: String
+)
+
+@Composable
+private fun HomeRow(name: String, icon: ImageVector, subtitle: String, onClick: () -> Unit) {
+    FrostCard(Modifier.fillMaxWidth(), onClick = onClick) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Icon(icon, contentDescription = null, tint = Ice, modifier = Modifier.size(22.dp))
+            Column(Modifier.weight(1f)) {
+                Text(name, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = Mist, maxLines = 1)
+            }
+            Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = Mist, modifier = Modifier.size(18.dp))
+        }
+    }
+}
+
+@Composable
+private fun HomeTile(module: HomeModule, modifier: Modifier, onClick: () -> Unit) {
+    FrostCard(modifier, onClick = onClick) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Icon(module.icon, contentDescription = null, tint = Ice, modifier = Modifier.size(18.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    module.name,
+                    style = MaterialTheme.typography.labelLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    module.subtitle,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Mist,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
 private data class MoneySnapshot(
     val spent: Double,
     val earned: Double,
@@ -452,23 +513,6 @@ private data class SleepSnapshot(
     val weekNights: Int,
     val weekScore: Int
 )
-
-@Composable
-private fun HomeLinkWithSubtitle(name: String, icon: ImageVector, subtitle: String, modifier: Modifier, onClick: () -> Unit) {
-    FrostCard(modifier, onClick = onClick) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(9.dp)
-        ) {
-            Icon(icon, contentDescription = null, tint = Ice, modifier = Modifier.size(20.dp))
-            Column(Modifier.weight(1f)) {
-                Text(name, style = MaterialTheme.typography.labelLarge, maxLines = 1)
-                Text(subtitle, style = MaterialTheme.typography.bodySmall, color = Mist, maxLines = 1)
-            }
-            Icon(Icons.Rounded.ChevronRight, contentDescription = null, tint = Mist, modifier = Modifier.size(18.dp))
-        }
-    }
-}
 
 @Composable
 fun SummaryScreen(

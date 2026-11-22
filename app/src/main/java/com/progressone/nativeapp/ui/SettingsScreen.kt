@@ -105,7 +105,7 @@ fun SettingsScreen(store: LocalStore, onBack: () -> Unit, onReplayTutorial: () -
                     store.setSetting("user_height_cm", profileHeight.cleanNumber().toString())
                     store.setSetting("user_age", profileAge.cleanNumber().toString())
                     message = "Profilo salvato."
-                }, Modifier.fillMaxWidth()) { Text("Salva profilo") }
+                }, Modifier.fillMaxWidth()) { Text("Save profile") }
             }
         }
         item {

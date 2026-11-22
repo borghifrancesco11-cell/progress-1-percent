@@ -1,17 +1,7 @@
-import java.util.Properties
-
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
-}
-
-// Optional cloud macro estimation (Gemini). Never commit the key: put it in
-// local.properties as GEMINI_API_KEY=...  Without it the app uses the offline
-// nutrition database and the second model is reported as unavailable.
-val localProperties = Properties().apply {
-    val file = rootProject.file("local.properties")
-    if (file.exists()) file.inputStream().use { load(it) }
 }
 
 android {
@@ -21,18 +11,12 @@ android {
         applicationId = "com.progressone.nativeapp"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1200
-        versionName = "1.2.0"
+        versionCode = 1300
+        versionName = "1.3.0"
         // Target device is ARM64 (Nothing Phone 3a). Avoid packaging x86 and
         // 32-bit ML Kit native libraries in the user-facing debug APK.
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-
-        buildConfigField(
-            "String",
-            "GEMINI_API_KEY",
-            "\"${localProperties.getProperty("GEMINI_API_KEY", "")}\""
-        )
     }
     buildTypes {
         release {
@@ -93,8 +77,7 @@ dependencies {
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
     // On-device Food Vision ONNX Runtime
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.20.0")
-    // Optional cloud macro estimator (Gemini). Falls back to FoodDatabase offline.
-    implementation("com.google.ai.client.generativeai:generativeai:0.9.0")
+    // On-device macro estimation model (ONNX). No cloud, no API key.
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
