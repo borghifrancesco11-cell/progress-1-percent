@@ -334,15 +334,7 @@ fun TodayScreen(
 
         item {
             val modules = buildList {
-                if (isEnabled("food")) {
-                    add(
-                        HomeModule(
-                            "Food", Icons.Rounded.Restaurant,
-                            if (todayMeals.isEmpty()) "0 / 3 meals today" else "${todayMeals.size} / 3 meals today",
-                            "food"
-                        )
-                    )
-                }
+                // Food already has its own row in the "Today" section above.
                 if (isEnabled("wardrobe")) {
                     add(
                         HomeModule(
