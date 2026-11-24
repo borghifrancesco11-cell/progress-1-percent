@@ -17,6 +17,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.progressone.nativeapp.data.GymDefaults
 import com.progressone.nativeapp.data.LocalStore
+import com.progressone.nativeapp.data.LocalCoachEngine
+import com.progressone.nativeapp.data.enabledModuleIds
 import kotlinx.coroutines.delay
 import org.json.JSONArray
 import org.json.JSONObject
@@ -30,7 +32,12 @@ private data class GymExercise(val name: String, val rest: Int, val bodyweight: 
 
 /** Gym & calisthenics — templates, guided sessions with rest timer, records and history. */
 @Composable
-fun GymScreen(store: LocalStore, snapshot: AppSnapshot, onBack: () -> Unit) {
+fun GymScreen(
+    store: LocalStore,
+    snapshot: AppSnapshot,
+    onBack: () -> Unit,
+    onOpen: (String) -> Unit = {},
+) {
     LaunchedEffect(Unit) { GymDefaults.seedIfEmpty(store) }
     var session by remember { mutableStateOf<JSONObject?>(null) }
     val active = session
@@ -41,6 +48,7 @@ fun GymScreen(store: LocalStore, snapshot: AppSnapshot, onBack: () -> Unit) {
             store = store,
             snapshot = snapshot,
             onBack = onBack,
+            onOpen = onOpen,
             onStart = { session = it }
         )
     }
@@ -51,6 +59,7 @@ private fun GymOverview(
     store: LocalStore,
     snapshot: AppSnapshot,
     onBack: () -> Unit,
+    onOpen: (String) -> Unit,
     onStart: (JSONObject) -> Unit
 ) {
     val todayIso = LocalDate.now().toString()
@@ -64,6 +73,18 @@ private fun GymOverview(
         workouts.map { it.optString("date") }.filter { it >= weekStart }.toSet().size
     }
     val discipline = remember(store.revision) { store.setting("gym_type", "gym") }
+    val enabledIds = remember(store.revision) { store.enabledModuleIds() }
+    val sleepTarget = remember(store.revision) {
+        (store.setting("sleep_target_hours", "8").toDoubleOrNull() ?: 8.0).coerceIn(4.0, 12.0)
+    }
+    val coachInsight = remember(snapshot, enabledIds, sleepTarget, todayIso) {
+        LocalCoachEngine.gym(
+            snapshot = snapshot,
+            enabledModules = enabledIds,
+            sleepTargetHours = sleepTarget,
+            date = todayIso,
+        )
+    }
     var confirmDiscipline by remember { mutableStateOf<String?>(null) }
 
     LazyColumn(
@@ -113,6 +134,10 @@ private fun GymOverview(
                 SmallStat("THIS WEEK", "$weekWorkouts", Modifier.weight(1f), Mint)
                 SmallStat("VOLUME", "${totalVolume.roundToInt()} kg", Modifier.weight(1f), Lavender)
             }
+        }
+
+        item {
+            CoachCard(insight = coachInsight, onAction = onOpen)
         }
 
         item {

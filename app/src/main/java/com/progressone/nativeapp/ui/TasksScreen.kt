@@ -17,11 +17,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import com.progressone.nativeapp.data.LocalStore
+import com.progressone.nativeapp.data.TaskHistory
 import org.json.JSONObject
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
 import java.util.Locale
+
+private fun persistTask(store: LocalStore, task: JSONObject, update: (JSONObject) -> Unit) {
+    val updated = JSONObject(task.toString())
+    update(updated)
+    store.put("task", updated)
+}
 
 @Composable
 fun TasksScreen(
@@ -104,12 +112,15 @@ fun TasksScreen(
                 }
                 items(pendingTasks, key = { "pending_${it.optString("id")}" }) { task ->
                     TaskCard(task, todayIso, onToggle = { checked ->
-                        task.put("done", checked)
-                        store.put("task", task)
+                        persistTask(store, task) { updated ->
+                            if (checked) TaskHistory.markCompleted(updated, todayIso)
+                            else TaskHistory.markPending(updated, todayIso)
+                        }
                     }, onSetDueToday = {
-                        task.put("due", todayIso)
-                        task.put("done", false)
-                        store.put("task", task)
+                        persistTask(store, task) { updated ->
+                            if (updated.optBoolean("done")) TaskHistory.markPending(updated, todayIso)
+                            updated.put("due", todayIso)
+                        }
                     }, onClick = {
                         taskEditor = task
                         showTaskEditor = true
@@ -123,12 +134,15 @@ fun TasksScreen(
                 }
                 items(completedTasks, key = { "done_${it.optString("id")}" }) { task ->
                     TaskCard(task, todayIso, onToggle = { checked ->
-                        task.put("done", checked)
-                        store.put("task", task)
+                        persistTask(store, task) { updated ->
+                            if (checked) TaskHistory.markCompleted(updated, todayIso)
+                            else TaskHistory.markPending(updated, todayIso)
+                        }
                     }, onSetDueToday = {
-                        task.put("due", todayIso)
-                        task.put("done", false)
-                        store.put("task", task)
+                        persistTask(store, task) { updated ->
+                            if (updated.optBoolean("done")) TaskHistory.markPending(updated, todayIso)
+                            updated.put("due", todayIso)
+                        }
                     }, onClick = {
                         taskEditor = task
                         showTaskEditor = true
@@ -196,6 +210,14 @@ private fun TaskCard(
                         style = MaterialTheme.typography.labelSmall,
                         color = if (isOverdue) Color(0xFFFF6B6B) else Mist
                     )
+                    val reminder = task.optString("reminder", "09:00")
+                    if (runCatching { LocalTime.parse(reminder) }.isSuccess) {
+                        Text(
+                            "Local reminder · $reminder",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = Mist
+                        )
+                    }
                 }
             }
             Box {
@@ -247,6 +269,7 @@ private fun TaskCard(
 fun TaskEditorModal(store: LocalStore, original: JSONObject?, onDismiss: () -> Unit) {
     var name by remember(original) { mutableStateOf(original?.optString("name") ?: "") }
     var due by remember(original) { mutableStateOf(original?.optString("due") ?: "") }
+    var reminder by remember(original) { mutableStateOf(original?.optString("reminder", "09:00") ?: "09:00") }
     var confirmDelete by remember { mutableStateOf(false) }
 
     val today = LocalDate.now().toString()
@@ -276,17 +299,30 @@ fun TaskEditorModal(store: LocalStore, original: JSONObject?, onDismiss: () -> U
             style = MaterialTheme.typography.bodySmall,
             color = Mist
         )
+
+        if (due.isNotBlank()) {
+            FormField("Local reminder time (HH:mm)", reminder, { reminder = it.take(5) })
+            Text(
+                "The reminder is scheduled on this device and can be disabled globally in Settings.",
+                style = MaterialTheme.typography.labelSmall,
+                color = Mist
+            )
+        }
         
         Button(
             onClick = {
-                val record = original ?: LocalStore.obj("done" to false)
+                val record = original?.let { JSONObject(it.toString()) } ?: LocalStore.obj("done" to false)
                 record.put("name", name.trim())
                 record.put("due", due.trim())
+                if (due.isNotBlank()) record.put("reminder", reminder.trim())
+                else record.remove("reminder")
                 store.put("task", record)
                 onDismiss()
             },
             modifier = Modifier.fillMaxWidth(),
-            enabled = name.isNotBlank() && (due.isBlank() || runCatching { LocalDate.parse(due) }.isSuccess)
+            enabled = name.isNotBlank() &&
+                (due.isBlank() || runCatching { LocalDate.parse(due) }.isSuccess) &&
+                (due.isBlank() || runCatching { LocalTime.parse(reminder) }.isSuccess)
         ) {
             Text("Save task")
         }

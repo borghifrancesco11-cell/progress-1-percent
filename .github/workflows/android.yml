@@ -1,0 +1,253 @@
+name: Android CI
+
+on:
+  push:
+    branches:
+      - '**'
+    tags:
+      - 'v*'
+  pull_request: {}
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Test, lint and assemble debug APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      APPLICATION_ID_DEBUG: com.progressone.nativeapp.debug
+      MODEL_PATH: app/src/main/assets/swin_food101_fp32.onnx
+      MODEL_SIZE_BYTES: '352389545'
+      MODEL_SHA256: f79aefaa7af43b7a11ae47267a8f733cb1152dec223d4d3db8fc95ab5dc44a83
+
+    steps:
+      - name: Checkout del repository
+        uses: actions/checkout@v4
+
+      - name: Configurazione di JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Configurazione di Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Installazione dei componenti Android SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          if [[ -z "$sdk_root" ]]; then
+            echo "::error::ANDROID_SDK_ROOT o ANDROID_HOME non sono configurati"
+            exit 1
+          fi
+
+          sdkmanager="$sdk_root/cmdline-tools/latest/bin/sdkmanager"
+          if [[ ! -x "$sdkmanager" ]]; then
+            sdkmanager="$(command -v sdkmanager || true)"
+          fi
+          if [[ -z "$sdkmanager" || ! -x "$sdkmanager" ]]; then
+            echo "::error::sdkmanager non è disponibile sul runner"
+            exit 1
+          fi
+
+          yes | "$sdkmanager" --sdk_root="$sdk_root" --licenses >/dev/null || true
+          "$sdkmanager" --sdk_root="$sdk_root" \
+            "platforms;android-36" \
+            "build-tools;36.0.0"
+
+          printf 'sdk.dir=%s\n' "$sdk_root" > local.properties
+          printf 'ANDROID_SDK_PATH=%s\n' "$sdk_root" >> "$GITHUB_ENV"
+
+      - name: Download e verifica del modello Food-101
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Il modello da ~336 MB è escluso da git e deve essere scaricato al build time.
+          if git ls-files --error-unmatch -- "$MODEL_PATH" >/dev/null 2>&1; then
+            echo "::error::$MODEL_PATH è tracciato in git; il modello non deve essere committato"
+            exit 1
+          fi
+
+          chmod +x scripts/download_food_model.sh
+          ./scripts/download_food_model.sh
+
+          test -f "$MODEL_PATH"
+          actual_size="$(stat -c '%s' "$MODEL_PATH")"
+          if [[ "$actual_size" != "$MODEL_SIZE_BYTES" ]]; then
+            echo "::error::Dimensione inattesa del modello: $actual_size byte (attesi $MODEL_SIZE_BYTES)"
+            exit 1
+          fi
+
+          printf '%s  %s\n' "$MODEL_SHA256" "$MODEL_PATH" | sha256sum --check --strict
+
+      - name: Test JVM, lint e assemble della variante debug
+        run: ./gradlew --no-daemon --stacktrace testDebugUnitTest lintDebug assembleDebug
+
+      - name: Smoke test strumentato su emulatore x86_64
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 36
+          arch: x86_64
+          profile: medium_phone
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: ./gradlew --no-daemon connectedDebugAndroidTest
+
+      - name: Verifica dell'APK e generazione di checksum e provenienza
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          apk_source="app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$apk_source"
+
+          aapt="$ANDROID_SDK_PATH/build-tools/36.0.0/aapt"
+          apksigner="$ANDROID_SDK_PATH/build-tools/36.0.0/apksigner"
+          test -x "$aapt"
+          test -x "$apksigner"
+
+          badging="$("$aapt" dump badging "$apk_source")"
+          application_id="$(printf '%s\n' "$badging" | awk -F"'" '/^package: name=/ {print $2; exit}')"
+          version_code="$(printf '%s\n' "$badging" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p" | head -n 1)"
+          version_name="$(printf '%s\n' "$badging" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p" | head -n 1)"
+
+          if [[ "$application_id" != "$APPLICATION_ID_DEBUG" ]]; then
+            echo "::error::applicationId inatteso: '$application_id' (atteso '$APPLICATION_ID_DEBUG')"
+            exit 1
+          fi
+          if [[ -z "$version_code" || -z "$version_name" ]]; then
+            echo "::error::Impossibile leggere versionCode/versionName dall'APK"
+            exit 1
+          fi
+
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            expected_version="${GITHUB_REF_NAME#v}"
+            if [[ "$version_name" != "$expected_version" ]]; then
+              echo "::error::versionName '$version_name' non coincide con il tag '$GITHUB_REF_NAME'"
+              exit 1
+            fi
+          fi
+
+          "$apksigner" verify --verbose "$apk_source"
+
+          mkdir -p release-assets
+          cp "$apk_source" release-assets/Progress1Percent-debug.apk
+          (
+            cd release-assets
+            sha256sum Progress1Percent-debug.apk > Progress1Percent-debug.apk.sha256
+          )
+          apk_sha256="$(awk '{print $1}' release-assets/Progress1Percent-debug.apk.sha256)"
+
+          cat > release-assets/provenance.txt <<EOF
+          Progress 1 Percent — provenienza della build
+          ================================================
+
+          Variante: debug
+          Application ID: $application_id
+          Versione Android: $version_name (versionCode $version_code)
+          Commit: $GITHUB_SHA
+          Ref: $GITHUB_REF
+          Workflow: $GITHUB_WORKFLOW (run $GITHUB_RUN_ID)
+          Run URL: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
+          Generato (UTC): $(date -u +'%Y-%m-%dT%H:%M:%SZ')
+
+          Task Gradle: testDebugUnitTest lintDebug assembleDebug connectedDebugAndroidTest
+          File APK: Progress1Percent-debug.apk
+          SHA-256 APK: $apk_sha256
+
+          Firma: keystore debug generato da Android Gradle Plugin; nessuna chiave di produzione.
+          Modello Food-101: app/src/main/assets/swin_food101_fp32.onnx
+          Origine modello: https://huggingface.co/onnx-community/swin-finetuned-food101-ONNX/resolve/main/onnx/model.onnx
+          SHA-256 modello: $MODEL_SHA256
+          Dimensione modello: $MODEL_SIZE_BYTES byte
+          EOF
+
+      - name: Upload degli artefatti di build
+        uses: actions/upload-artifact@v4
+        with:
+          name: progress-one-debug-apk
+          path: release-assets/
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Pubblicazione della GitHub Release per i tag v*
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download di APK, checksum e provenienza
+        uses: actions/download-artifact@v4
+        with:
+          name: progress-one-debug-apk
+          path: release-assets
+
+      - name: Creazione o aggiornamento della GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          tag="$GITHUB_REF_NAME"
+          apk="release-assets/Progress1Percent-debug.apk"
+          checksum="release-assets/Progress1Percent-debug.apk.sha256"
+          provenance="release-assets/provenance.txt"
+
+          if [[ "$tag" != v* ]]; then
+            echo "::error::Tag non valido per la release: $tag"
+            exit 1
+          fi
+          test -s "$apk"
+          test -s "$checksum"
+          test -s "$provenance"
+
+          apk_sha256="$(awk '{print $1}' "$checksum")"
+          title="Progress 1 Percent $tag (DEBUG)"
+          notes_file="$RUNNER_TEMP/release-notes.md"
+
+          cat > "$notes_file" <<EOF
+          ## Progress 1 Percent $tag — build DEBUG
+
+          Questa release contiene una APK **debug**, firmata con il keystore debug temporaneo di GitHub Actions.
+
+          - Variante: \`debug\`
+          - Application ID: \`com.progressone.nativeapp.debug\`
+          - Commit: \`$GITHUB_SHA\`
+          - SHA-256 APK: \`$apk_sha256\`
+          - Task CI: \`testDebugUnitTest\`, \`lintDebug\`, \`assembleDebug\`, \`connectedDebugAndroidTest\`
+
+          La provenienza completa, il checksum del modello Food-101 e l'origine della build sono disponibili nell'asset \`provenance.txt\`.
+
+          > **Attenzione:** l'\`applicationId\` \`com.progressone.nativeapp.debug\` consente l'installazione affiancata alla build di produzione. Non usare questa variante per aggiornare l'app di produzione.
+          EOF
+
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$tag" "$apk" "$checksum" "$provenance" \
+              --clobber --repo "$GITHUB_REPOSITORY"
+            gh release edit "$tag" \
+              --title "$title" \
+              --notes-file "$notes_file" \
+              --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$tag" "$apk" "$checksum" "$provenance" \
+              --verify-tag \
+              --title "$title" \
+              --notes-file "$notes_file" \
+              --repo "$GITHUB_REPOSITORY"
+          fi

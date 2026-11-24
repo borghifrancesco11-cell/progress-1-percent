@@ -22,11 +22,14 @@ data class AppSnapshot(
     val gymWorkouts: List<JSONObject>,
     val logs: List<LocalStore.Entry>,
     val goalGrade: Double,
-    val monthBudget: Double
+    val monthBudget: Double,
+    /** Monthly spending budgets keyed by YYYY-MM. */
+    val budgetsByMonth: Map<String, Double> = emptyMap()
 ) {
     companion object {
         fun load(store: LocalStore): AppSnapshot {
             val month = java.time.LocalDate.now().toString().take(7)
+            val budgets = loadBudgets(store)
             return AppSnapshot(
                 trackers = store.all("tracker"),
                 tasks = store.all("task"),
@@ -46,8 +49,26 @@ data class AppSnapshot(
                 gymWorkouts = store.all("gym_workout"),
                 logs = store.entries(),
                 goalGrade = store.setting("goalGrade", "7").toDoubleOrNull() ?: 7.0,
-                monthBudget = store.setting("budget_$month", "0").toDoubleOrNull() ?: 0.0
+                monthBudget = budgets[month] ?: 0.0,
+                budgetsByMonth = budgets
             )
+        }
+
+        /** Reads every persisted budget_YYYY-MM setting without changing the current-month API. */
+        private fun loadBudgets(store: LocalStore): Map<String, Double> {
+            val budgets = linkedMapOf<String, Double>()
+            store.readableDatabase.query(
+                "settings", arrayOf("key", "value"), null, null, null, null, null
+            ).use { cursor ->
+                while (cursor.moveToNext()) {
+                    val key = cursor.getString(0)
+                    if (!key.startsWith("budget_")) continue
+                    val month = key.removePrefix("budget_")
+                    if (!month.matches(Regex("\\d{4}-\\d{2}"))) continue
+                    cursor.getString(1).toDoubleOrNull()?.let { budgets[month] = it }
+                }
+            }
+            return budgets
         }
     }
 }

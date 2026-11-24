@@ -13,6 +13,8 @@
     <application
         android:label="Progress 1%"
         android:allowBackup="false"
+        android:fullBackupContent="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:usesCleartextTraffic="false"
         android:supportsRtl="true"
         android:largeHeap="true"
@@ -39,7 +41,6 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
-            android:screenOrientation="unspecified"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN"/>

@@ -33,6 +33,8 @@ import androidx.core.content.FileProvider
 import com.progressone.nativeapp.data.LocalStore
 import com.progressone.nativeapp.data.NutritionMath
 import com.progressone.nativeapp.data.NutritionTotals
+import com.progressone.nativeapp.data.LocalCoachEngine
+import com.progressone.nativeapp.data.enabledModuleIds
 import com.progressone.nativeapp.foodvision.Food101Classifier
 import com.progressone.nativeapp.foodvision.FoodDatabase
 import com.progressone.nativeapp.foodvision.FoodDishInfo
@@ -70,7 +72,11 @@ fun estimatePortionGrams(h: Double, w: Double): Double {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FoodScreen(store: LocalStore) {
+fun FoodScreen(
+    store: LocalStore,
+    snapshot: AppSnapshot,
+    onOpen: (String) -> Unit = {},
+) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val revision = store.revision
@@ -113,6 +119,20 @@ fun FoodScreen(store: LocalStore) {
     val targetProtein = store.setting("food_target_protein", "120").cleanNumber().takeIf { it > 0 } ?: 120.0
     val targetCarbs = store.setting("food_target_carbs", "260").cleanNumber().takeIf { it > 0 } ?: 260.0
     val targetFat = store.setting("food_target_fat", "70").cleanNumber().takeIf { it > 0 } ?: 70.0
+    val enabledIds = remember(store.revision) { store.enabledModuleIds() }
+    val sleepTarget = remember(store.revision) {
+        (store.setting("sleep_target_hours", "8").toDoubleOrNull() ?: 8.0).coerceIn(4.0, 12.0)
+    }
+    val coachInsight = remember(snapshot, enabledIds, date, targetKcal, targetProtein, sleepTarget) {
+        LocalCoachEngine.food(
+            snapshot = snapshot,
+            enabledModules = enabledIds,
+            targetKcal = targetKcal,
+            targetProtein = targetProtein,
+            sleepTargetHours = sleepTarget,
+            date = date,
+        )
+    }
 
     // Preload the ONNX model in the background when entering the Food screen.
     // The first launch copies the 336 MB model into private storage, so this can
@@ -468,6 +488,10 @@ fun FoodScreen(store: LocalStore) {
         ) {
         item {
             PageHeading("AI NUTRITION", "Food", "Photo → AI recognizes dish → automatic nutrition & score")
+        }
+
+        item {
+            CoachCard(insight = coachInsight, onAction = onOpen)
         }
 
         item {

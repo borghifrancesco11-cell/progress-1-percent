@@ -27,7 +27,8 @@ import java.time.ZoneId
  */
 object ReminderScheduler {
     private const val CHANNEL = "progress_tracker_reminders"
-    private const val ACTION_REMIND = "com.progressone.nativeapp.REMIND"
+    private const val TASK_CHANNEL = "progress_task_reminders"
+    internal const val ACTION_REMIND = "com.progressone.nativeapp.REMIND"
     private const val REQUEST_CODE = 31271
     private val timePattern = Regex("(?:[01][0-9]|2[0-3]):[0-5][0-9]")
 
@@ -42,11 +43,11 @@ object ReminderScheduler {
         PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
     )
 
-    /** Find the next due tracker reminder (up to one year ahead). */
+    /** Find the next tracker or task reminder (up to one year ahead). */
     internal fun nextWakeup(store: LocalStore, now: LocalDateTime = LocalDateTime.now()): LocalDateTime? {
-        val trackers = store.all("tracker")
         var earliest: LocalDateTime? = null
-        for (tracker in trackers) {
+
+        for (tracker in store.all("tracker")) {
             val raw = tracker.optString("reminder")
             if (!timePattern.matches(raw)) continue
             val at = LocalTime.parse(raw)
@@ -59,6 +60,17 @@ object ReminderScheduler {
                 break
             }
         }
+
+        for (task in store.all("task")) {
+            if (task.optBoolean("done")) continue
+            val due = runCatching { LocalDate.parse(task.optString("due")) }.getOrNull() ?: continue
+            val raw = task.optString("reminder", "09:00")
+            if (!timePattern.matches(raw)) continue
+            val timestamp = LocalDateTime.of(due, LocalTime.parse(raw))
+            if (!timestamp.isAfter(now)) continue
+            if (earliest == null || timestamp.isBefore(earliest)) earliest = timestamp
+        }
+
         return earliest
     }
 
@@ -86,6 +98,9 @@ object ReminderScheduler {
         manager.createNotificationChannel(NotificationChannel(
             CHANNEL, "Tracker reminders", NotificationManager.IMPORTANCE_DEFAULT
         ).apply { description = "Reminders for scheduled Progress 1% trackers" })
+        manager.createNotificationChannel(NotificationChannel(
+            TASK_CHANNEL, "Task reminders", NotificationManager.IMPORTANCE_DEFAULT
+        ).apply { description = "Reminders for tasks and commitments due today" })
         for (tracker in store.all("tracker")) {
             val raw = tracker.optString("reminder")
             if (!timePattern.matches(raw) || LocalTime.parse(raw).isAfter(currentTime)) continue
@@ -110,12 +125,45 @@ object ReminderScheduler {
             manager.notify(id.hashCode(), notification)
             store.setSetting(key, today)
         }
+
+        for (task in store.all("task")) {
+            if (task.optBoolean("done") || task.optString("due") != today) continue
+            val raw = task.optString("reminder", "09:00")
+            if (!timePattern.matches(raw) || LocalTime.parse(raw).isAfter(currentTime)) continue
+            val id = task.optString("id")
+            if (id.isBlank()) continue
+            val key = "last_notified_task_$id"
+            if (store.setting(key) == today) continue
+            val open = PendingIntent.getActivity(
+                context, 1, Intent(context, MainActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                }, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val notification = Notification.Builder(context, TASK_CHANNEL)
+                .setSmallIcon(android.R.drawable.ic_popup_reminder)
+                .setContentTitle("Progress 1% · Commitment due")
+                .setContentText(task.optString("name", "Your task is due today"))
+                .setContentIntent(open)
+                .setAutoCancel(true)
+                .setShowWhen(true)
+                .build()
+            manager.notify("task:$id".hashCode(), notification)
+            store.setSetting(key, today)
+        }
     }
+
+    /** Rejects explicit or implicit broadcasts that are not part of the reminder contract. */
+    internal fun isExpectedAction(action: String?): Boolean = action == ACTION_REMIND ||
+        action == Intent.ACTION_BOOT_COMPLETED ||
+        action == Intent.ACTION_MY_PACKAGE_REPLACED ||
+        action == Intent.ACTION_TIME_CHANGED ||
+        action == Intent.ACTION_TIMEZONE_CHANGED
 }
 
 /** Receives an inexact alarm and reschedules after reboot, package updates or clock changes. */
 class ReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        if (!ReminderScheduler.isExpectedAction(intent.action)) return
         val pending = goAsync()
         val appContext = context.applicationContext
         Thread {

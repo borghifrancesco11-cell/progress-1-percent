@@ -1,59 +1,82 @@
-# Architecture
+# Architettura
 
-Progress 1 Percent is a single-module Kotlin application built with Jetpack Compose.
-Everything is stored locally in the app's private storage (SQLite for structured records,
-files for photos).
+Progress 1 Percent è un'applicazione Android Kotlin a modulo singolo basata su Jetpack
+Compose. Tutti i dati strutturati sono salvati localmente in SQLite; foto, modello
+Food-101 e altri file binari risiedono nello spazio privato dell'app.
 
-```
+```text
 MainActivity
- ├── AppShell (navigation, bottom bar, module visibility)
- ├── TodayScreen          home: progress score, essentials, module grid
- ├── FoodScreen           photo AI, macro AI, targets, meals
- ├── GymScreen / SleepScreen / SchoolScreen / FinanceScreen
- ├── TrackScreen / WardrobeScreen / SocialScreen / TasksScreen
- ├── ChallengesScreen / DiaryScreen / MixMatchScreen
- └── SettingsScreen       modules, profile, BMI, language, backup
+├── NativeRoot                 navigazione, tema e snapshot
+├── TodayScreen                score giornaliero, moduli attivi e Coach Home
+├── CalendarScreen             heatmap annuale, giornata e streak
+├── FoodScreen                 foto AI, macro AI, diario e Coach Food
+├── GymScreen / SleepScreen    allenamento, recupero e Coach Gym
+├── SchoolScreen / FinanceScreen
+├── TrackScreen / WardrobeScreen / SocialScreen / TasksScreen
+├── ChallengesScreen / SummaryScreen
+└── SettingsScreen             moduli, profilo, backup e permessi
 ```
 
-## Layers
+## Livelli
 
-| Layer | Package | Responsibility |
-|-------|---------|----------------|
-| Data | `data/` | `LocalStore` (SQLite persistence), domain models, pure calculation helpers (`NutritionMath`, `ProgressScore`, `Metrics`, `OutfitLogic`, `SleepUtils`) |
-| AI | `foodvision/` | `Food101Classifier` (vision model), `MacroModel` (macro model), `FoodDatabase` (reference table and scoring) |
-| Platform | `media/`, `reminders/`, `weather/` | image decoding and editing, reminder scheduling, Open-Meteo weather lookup |
-| UI | `ui/` | Compose screens, design system (`Design.kt`), localisation helpers (`Localization.kt`) |
+| Livello | Package | Responsabilità |
+|---------|---------|----------------|
+| Dati | `data/` | `LocalStore` e persistenza SQLite; modelli; helper puri per metriche, punteggio, sonno, nutrizione e intelligenza locale |
+| AI | `foodvision/` | `Food101Classifier` (Swin), `MacroModel` e `FoodDatabase`; inferenza ONNX sul dispositivo |
+| Piattaforma | `media/`, `reminders/`, `weather/` | elaborazione foto, promemoria Android locali e lookup meteo opzionale |
+| UI | `ui/` | schermate Compose, design system, navigazione e adapter |
+| Dominio locale | `data/ProgressIntelligence.kt` | score giornaliero pesato, heatmap, streak e Coach deterministico |
 
-## Data flow
+## Snapshot e flusso dati
 
+`AppSnapshot.load()` legge il database su `Dispatchers.IO` e produce un snapshot
+immutabile delle entità correnti. `LocalStore.revision` invalida lo snapshot a ogni
+mutazione locale; la UI ricompone quindi senza interrogazioni bloccanti sul thread
+principale.
+
+Il motore `DailyProgressEngine` calcola un punteggio 0–100 a partire dai soli moduli
+abilitati che hanno un segnale reale nella giornata. I pesi vengono normalizzati sul
+totale disponibile: un modulo senza dati non penalizza l'utente. `SmartScoreEngine`
+consente di testare il contratto di pesatura senza Android o dipendenze cloud.
+
+`LocalCoachEngine` produce soltanto advice deterministico da dati locali. Ogni route
+proposto viene validato contro i moduli abilitati o contro le rotte core, così un
+Coach per Food o Gym non può portare a una funzione disattivata.
+
+## Persistenza
+
+```text
+entities(type, id, payload JSON, created_at, updated_at)
+entries(owner_id, date, value, status, notes)
+settings(key, value)
 ```
-UI  ──►  LocalStore (SQLite)  ──►  AppSnapshot  ──►  UI
- │                                        ▲
- └─► repository / model helpers ─────────┘
+
+Gli snapshot JSON consentono di estendere un record senza migrazioni SQLite. La
+completion history dei task usa `completedHistory` e `completedAt` dentro il payload
+`task`; la data reale di completamento alimenta score, heatmap e streak senza
+perdere le date precedenti.
+
+Le foto sono cancellate insieme al record che le referenzia. `allowBackup="false"`
+impedisce il backup Android automatico; l'export manuale usa il Storage Access
+Framework e resta sotto controllo dell'utente.
+
+## AI on-device
+
+```text
+foto → ImageProcessor → Swin Food-101 → piatto
+                                      ↓
+                              Macro estimator
+                                      ↓
+                    calorie · macro · porzione · score
 ```
 
-`AppSnapshot` is an immutable snapshot of every record; `LocalStore.revision` is a counter
-that increments on each write, so Compose recomposes automatically after a change.
+Il runtime ONNX e i modelli sono inclusi nell'APK. Nessuna inferenza richiede rete,
+account o chiave API. Il lookup del codice a barre e il meteo sono funzioni opzionali
+e controllate dall'utente.
 
-## AI flow (Food)
+## Notifiche locali
 
-```
-camera / gallery
-   └─► ImageProcessor.decode  (EXIF rotation, bounded size)
-        └─► Food101Classifier.classify  (Swin Food-101, on-device)
-             └─► MacroModel.estimate  (macro estimator, on-device)
-                  └─► NutritionMath → FoodDatabase.calculateIntelligentScore
-                       └─► saved meal with VISION AI / MACRO AI badge
-```
-
-## Design system
-
-`ui/Design.kt` centralises the palette, the frosted card, the progress ring, the small
-stat block and the bottom sheet frame. The default theme is an OLED dark theme with mint
-and lavender accents; a light theme is available from the settings.
-
-## Tests
-
-* `app/src/test/java/com/progressone/nativeapp/` — JVM unit tests for the calculation
-  helpers and for the parity between the Kotlin feature hashing and the Python training
-  pipeline.
+`ReminderScheduler` usa un alarm Android inexact e due canali locali: Tracker e Task.
+Il piano mantiene la scadenza reale del task, un orario configurabile e un marker
+idempotente per data. Le notifiche non contengono dati sensibili e l'apertura
+riporta l'utente nell'app.

@@ -16,7 +16,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.ArrowBack
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -51,7 +51,7 @@ private val sectionTitles = mapOf(
     "school" to "School", "money" to "Money", "gym" to "Gym", "sleep" to "Sleep",
     "social" to "Social detox",
     "challenges" to "Challenges", "summary" to "Progress", "settings" to "Settings",
-    "tasks" to "Tasks"
+    "tasks" to "Tasks", "calendar" to "Calendar"
 )
 
 @Composable
@@ -64,7 +64,11 @@ fun NativeRoot(store: LocalStore) {
     val snapshot = state.value
     val reduceMotion = remember(revision) { store.setting("reduce_motion", "false") == "true" }
     val enabled: (String) -> Boolean = { store.moduleEnabled(it) }
+    val coreRoutes = setOf("track", "settings", "summary", "challenges", "tasks", "calendar")
     var page by remember { mutableStateOf("") }
+    val openDestination: (String) -> Unit = { destination ->
+        if (destination in coreRoutes || enabled(destination)) page = destination
+    }
     val context = androidx.compose.ui.platform.LocalContext.current
     LaunchedEffect(Unit) {
         if (store.setting("onboarding_complete", "false") != "true") page = "onboarding"
@@ -82,7 +86,7 @@ fun NativeRoot(store: LocalStore) {
                 verticalAlignment = Alignment.CenterVertically) {
                 if (page.isNotEmpty() && page != "onboarding") {
                     IconButton(onClick = { page = "" }) {
-                        Icon(Icons.Rounded.ArrowBack, contentDescription = "Back to Home")
+                        Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back to Home")
                     }
                 }
                 Text(if (page.isNotEmpty() && page != "onboarding") sectionTitles[page] ?: "Progress 1%"
@@ -133,12 +137,13 @@ fun NativeRoot(store: LocalStore) {
                         onChallenges = { if (enabled("challenges")) page = "challenges" },
                         showChallenges = enabled("challenges"))
                     "wardrobe" -> WardrobeScreen(store, snapshot)
-                    "food" -> FoodScreen(store)
+                    "food" -> FoodScreen(store, snapshot, openDestination)
                     "school" -> SchoolScreen(store, snapshot)
                     "money" -> FinanceScreen(store, snapshot)
                     "challenges" -> ChallengesScreen(store, snapshot, onBack = { page = "" })
                     "tasks" -> TasksScreen(store, snapshot, onBack = { page = "" })
-                    "gym" -> GymScreen(store, snapshot, onBack = { page = "" })
+                    "calendar" -> CalendarScreen(store, snapshot, onBack = { page = "" })
+                    "gym" -> GymScreen(store, snapshot, onBack = { page = "" }, onOpen = openDestination)
                     "sleep" -> SleepScreen(store, snapshot, onBack = { page = "" })
                     "social" -> SocialScreen(store, onBack = { page = "" })
                     "summary" -> SummaryScreen(store, snapshot,
@@ -146,10 +151,7 @@ fun NativeRoot(store: LocalStore) {
                         showMoney = enabled("money"), showChallenges = enabled("challenges"),
                         showOutfits = enabled("outfits"), onBack = { page = "" })
                     else -> TodayScreen(store = store, snapshot = snapshot, isEnabled = enabled,
-                        onOpen = { destination ->
-                            if (destination in setOf("track", "settings", "summary", "challenges", "tasks") || enabled(destination))
-                                page = destination
-                        })
+                        onOpen = openDestination)
                 }
             }
         }

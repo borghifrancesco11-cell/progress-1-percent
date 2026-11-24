@@ -11,17 +11,16 @@ android {
         applicationId = "com.progressone.nativeapp"
         minSdk = 26
         targetSdk = 36
-        versionCode = 1300
-        versionName = "1.3.0"
-        // Target device is ARM64 (Nothing Phone 3a). Avoid packaging x86 and
-        // 32-bit ML Kit native libraries in the user-facing debug APK.
-        ndk { abiFilters += "arm64-v8a" }
+        versionCode = 1400
+        versionName = "1.4.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildTypes {
         release {
             isMinifyEnabled = true
             isShrinkResources = true
+            // Production target: ARM64 phone.
+            ndk { abiFilters += "arm64-v8a" }
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
@@ -32,6 +31,8 @@ android {
             isMinifyEnabled = false
             isDebuggable = true
             applicationIdSuffix = ".debug"
+            // The public debug artifact must also run on the x86_64 CI emulator.
+            ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
         }
     }
     compileOptions {
@@ -81,6 +82,9 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
+    androidTestImplementation("androidx.test.ext:junit:1.2.1")
+    androidTestImplementation("androidx.test:core-ktx:1.6.1")
+    androidTestImplementation("androidx.test:runner:1.6.2")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }
 

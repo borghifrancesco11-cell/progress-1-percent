@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -25,6 +26,9 @@ import com.progressone.nativeapp.data.Metrics
 import com.progressone.nativeapp.data.ProgressScore
 import com.progressone.nativeapp.data.SleepUtils
 import com.progressone.nativeapp.data.SocialUtils
+import com.progressone.nativeapp.data.DailyProgressEngine
+import com.progressone.nativeapp.data.LocalCoachEngine
+import com.progressone.nativeapp.data.enabledModuleIds
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -46,43 +50,10 @@ fun TodayScreen(
     val activeGoals = snapshot.trackers.filterNot { it.optBoolean("archived") }
     val reduceMotion = remember(store.revision) { store.setting("reduce_motion", "false") == "true" }
 
-    // Weekly tracker scores
+    // Weekly tracker scores are context only; the hero score is the weighted daily score.
     val weekScores = ProgressScore.lastSeven(activeGoals, snapshot.logs)
     val weeklyAvgTracker = if (weekScores.isNotEmpty()) weekScores.average().roundToInt() else 0
     val (goalsTodayDone, goalsTodayTotal) = Metrics.daySummary(activeGoals, snapshot.logs, todayIso)
-
-    // Food weekly average
-    val foodWeeklyAvg = remember(snapshot.foods) {
-        val last7 = (0..6).map { LocalDate.now().minusDays(it.toLong()).toString() }
-        val dailyAvgs = last7.map { day ->
-            val meals = snapshot.foods.filter {
-                it.optString("date") == day &&
-                    it.optBoolean("nutritionKnown", it.optDouble("kcal", 0.0) > 0)
-            }
-            val scores = meals.mapNotNull { meal ->
-                if (meal.has("foodScore") && meal.optInt("foodScore") > 0) meal.optInt("foodScore") else null
-            }
-            if (scores.isNotEmpty()) scores.average() else null
-        }.filterNotNull()
-        if (dailyAvgs.isNotEmpty()) dailyAvgs.average().roundToInt() else null
-    }
-
-    // Tasks completion
-    val tasksCompletion = remember(snapshot.tasks) {
-        val total = snapshot.tasks.size
-        if (total == 0) null else (snapshot.tasks.count { it.optBoolean("done") }.toDouble() / total * 100).roundToInt()
-    }
-
-    // Challenges completion
-    val challengesScore = remember(snapshot.challenges) {
-        val total = snapshot.challenges.size
-        if (total == 0) null else (snapshot.challenges.count { it.optBoolean("finished") }.toDouble() / total * 100).roundToInt()
-    }
-
-    // School average grade normalized to 100
-    val schoolScore = remember(snapshot.grades) {
-        Metrics.weightedAverage(snapshot.grades)?.let { (it * 10).roundToInt().coerceIn(0, 100) }
-    }
 
     // Money: budget adherence for the current month
     val moneyData = remember(snapshot.transactions, snapshot.monthBudget, month) {
@@ -140,28 +111,50 @@ fun TodayScreen(
 
     // Social detox: usage stats must never block the UI thread.
     val context = LocalContext.current
-    val socialScore by produceState<Int?>(initialValue = null, store.revision) {
-        value = withContext(Dispatchers.IO) { runCatching { SocialUtils.score(context, store) }.getOrNull() }
+    val socialScore by produceState<Int?>(initialValue = null, store.revision, isEnabled("social")) {
+        value = if (isEnabled("social")) {
+            withContext(Dispatchers.IO) { runCatching { SocialUtils.score(context, store) }.getOrNull() }
+        } else null
     }
     val socialSummary = remember(store.revision) { SocialUtils.summary(store) }
 
-    // Composite weekly score from enabled modules that actually have data.
-    val contributions = buildList {
-        if (activeGoals.isNotEmpty() || weekScores.isNotEmpty()) add("Tracker" to weeklyAvgTracker)
-        if (isEnabled("food")) foodWeeklyAvg?.let { add("Food" to it) }
-        if (snapshot.tasks.isNotEmpty()) tasksCompletion?.let { add("Tasks" to it) }
-        if (isEnabled("challenges")) challengesScore?.let { add("Challenges" to it) }
-        if (isEnabled("school")) schoolScore?.let { add("School" to it) }
-        if (isEnabled("money")) moneyData.score?.let { add("Money" to it) }
-        if (isEnabled("gym") && gymData.weekCount > 0) {
-            add("Gym" to ((gymData.activeDays / 3.0) * 100).roundToInt().coerceIn(0, 100))
-        }
-        if (isEnabled("sleep") && sleepData.weekNights > 0) {
-            add("Sleep" to sleepData.weekScore)
-        }
-        if (isEnabled("social")) socialScore?.let { add("Detox" to it) }
+    // The daily score is computed from enabled modules that have a real signal today.
+    val enabledIds = remember(store.revision) { store.enabledModuleIds() }
+    val dailyBreakdown = remember(snapshot, enabledIds, socialScore, sleepTarget, todayIso) {
+        DailyProgressEngine.today(
+            snapshot = snapshot,
+            enabledModules = enabledIds,
+            socialScore = socialScore,
+            date = todayIso,
+            sleepTargetHours = sleepTarget,
+        )
     }
-    val weeklyComposite = if (contributions.isNotEmpty()) contributions.map { it.second }.average().roundToInt() else 0
+    val coachInsight = remember(snapshot, enabledIds, dailyBreakdown.score, sleepTarget, todayIso) {
+        LocalCoachEngine.home(
+            snapshot = snapshot,
+            enabledModules = enabledIds,
+            totalScore = dailyBreakdown.score,
+            sleepTargetHours = sleepTarget,
+            date = todayIso,
+        )
+    }
+    val dailyStreak = remember(snapshot, enabledIds, sleepTarget) {
+        DailyProgressEngine.streak(
+            snapshot = snapshot,
+            enabledModules = enabledIds,
+            today = LocalDate.now(),
+            lookbackDays = 365,
+            sleepTargetHours = sleepTarget,
+        )
+    }
+    val moduleNames = mapOf(
+        "track" to "Tracker", "tasks" to "Tasks", "food" to "Food", "gym" to "Gym",
+        "sleep" to "Sleep", "challenges" to "Challenges", "social" to "Detox",
+        "school" to "School", "money" to "Money",
+    )
+    val dailyContributions = dailyBreakdown.moduleScores.entries.map { (id, score) ->
+        (moduleNames[id] ?: id.replaceFirstChar { it.uppercase() }) to score
+    }
 
     // Last 7 days consistency for tracker
     val weekDays = (0..6).map { LocalDate.now().minusDays(it.toLong()) }.reversed()
@@ -192,9 +185,9 @@ fun TodayScreen(
         // ---- HERO: one card with the score, the ring and the three key numbers ----
         item {
             val animatedScore by animateIntAsState(
-                targetValue = weeklyComposite,
+                targetValue = dailyBreakdown.score,
                 animationSpec = tween(if (reduceMotion) 0 else 700, easing = FastOutSlowInEasing),
-                label = "composite"
+                label = "daily-score"
             )
             FrostCard(Modifier.fillMaxWidth(), highlighted = true) {
                 Row(
@@ -204,7 +197,7 @@ fun TodayScreen(
                 ) {
                     ProgressRing(animatedScore / 100f, Modifier.size(96.dp), sizeDp = 96.dp)
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Eyebrow("SCORE OF THE WEEK", Mint)
+                        Eyebrow("TODAY'S SCORE", Mint)
                         Text(
                             "$animatedScore / 100",
                             style = MaterialTheme.typography.headlineLarge,
@@ -212,8 +205,8 @@ fun TodayScreen(
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            if (contributions.isEmpty()) "Log a goal or a meal to start your week"
-                            else contributions.joinToString(", ") { it.first },
+                            if (dailyContributions.isEmpty()) "Log one action to start today's score"
+                            else dailyContributions.joinToString(", ") { "${it.first} ${it.second}" },
                             color = Mist,
                             style = MaterialTheme.typography.bodySmall,
                             maxLines = 2
@@ -233,12 +226,16 @@ fun TodayScreen(
                     SmallStat("TASKS", "$todayTasksLeft", Modifier.weight(1f), Mint)
                     SmallStat(
                         "STREAK",
-                        "${activeGoals.maxOfOrNull { Metrics.streak(it, snapshot.logs, todayIso) } ?: 0}d",
+                        "${dailyStreak}d",
                         Modifier.weight(1f),
                         Lavender
                     )
                 }
             }
+        }
+
+        item {
+            CoachCard(insight = coachInsight, onAction = onOpen)
         }
 
         // ---- TODAY: the three things that matter right now ----
@@ -248,14 +245,16 @@ fun TodayScreen(
 
         item {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                HomeRow(
-                    "Food",
-                    Icons.Rounded.Restaurant,
-                    when {
-                        todayMeals.isEmpty() -> "No meal logged yet"
-                        else -> "${todayMeals.size} meal${if (todayMeals.size != 1) "s" else ""} · ${todayMeals.sumOf { it.optDouble("kcal", 0.0) }.roundToInt()} kcal"
-                    }
-                ) { onOpen("food") }
+                if (isEnabled("food")) {
+                    HomeRow(
+                        "Food",
+                        Icons.Rounded.Restaurant,
+                        when {
+                            todayMeals.isEmpty() -> "No meal logged yet"
+                            else -> "${todayMeals.size} meal${if (todayMeals.size != 1) "s" else ""} · ${todayMeals.sumOf { it.optDouble("kcal", 0.0) }.roundToInt()} kcal"
+                        }
+                    ) { onOpen("food") }
+                }
 
                 HomeRow(
                     "Tracker",
@@ -269,6 +268,13 @@ fun TodayScreen(
                     Icons.Rounded.Checklist,
                     if (todayTasksLeft == 0) "Nothing left today" else "$todayTasksLeft remaining"
                 ) { onOpen("tasks") }
+
+                HomeRow(
+                    "Calendar",
+                    Icons.Rounded.CalendarMonth,
+                    if (dailyStreak == 0) "Build your first active day"
+                    else "$dailyStreak-day streak · annual heatmap"
+                ) { onOpen("calendar") }
             }
         }
 
@@ -538,7 +544,7 @@ fun SummaryScreen(
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton(onClick = onBack) {
-                    Icon(Icons.Rounded.ArrowBack, contentDescription = "Back")
+                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
                 }
                 PageHeading("INTELLIGENT TRACKER", "Progress", "Comprehensive progress analytics & scores")
             }

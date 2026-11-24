@@ -1,112 +1,106 @@
 # Progress 1 Percent
 
-[![Version](https://img.shields.io/badge/version-1.3.0-blue)](https://github.com/borghifrancesco11-cell/progress-1-percent/releases)
-![Kotlin](https://img.shields.io/badge/Kotlin-2.x-0098D1?logo=kotlin)
-![Jetpack Compose](https://img.shields.io/badge/UI-Jetpack%20Compose-4285F4?logo=android)
-![Material 3](https://img.shields.io/badge/Design-Material%203-6200EE?logo=material-design)
-![minSdk](https://img.shields.io/badge/minSdk-26-green)
-![Offline](https://img.shields.io/badge/data-off%20first-2ea44f)
+[![Ultima release](https://img.shields.io/github/v/release/borghifrancesco11-cell/progress-1-percent?label=release)](https://github.com/borghifrancesco11-cell/progress-1-percent/releases)
+[![Kotlin](https://img.shields.io/badge/Kotlin-2.2.21-0098D1?logo=kotlin)](https://kotlinlang.org/)
+[![Jetpack Compose](https://img.shields.io/badge/UI-Jetpack%20Compose-4285F4?logo=android)](https://developer.android.com/jetpack/compose)
+[![Material 3](https://img.shields.io/badge/Design-Material%203-6200EE?logo=material-design)](https://m3.material.io/)
+[![minSdk](https://img.shields.io/badge/minSdk-26-green)](https://developer.android.com/)
+[![Offline first](https://img.shields.io/badge/data-offline%20first-2ea44f)](#privacy-e-dati)
 
-**Progress 1 Percent** is an offline-first Android app for personal growth: nutrition, gym,
-sleep, money, study, habits, wardrobe and social life, all aggregated into a single daily
-progress score.
+**Progress 1 Percent** è un'applicazione Android *offline-first* per la crescita personale.
+Riunisce alimentazione, allenamento, sonno, finanze, studio, abitudini, guardaroba e vita
+sociale in un unico punteggio di progresso giornaliero.
 
-This is version **1.3.0**, built on the newer native app (`com.progressone.nativeapp`) and
-extended with the features that only existed in the older GitHub release.
+L'app non richiede un account, non usa servizi AI cloud e conserva i dati personali nello
+spazio privato del dispositivo. La release automatica pubblica una variante **debug**
+firmata con il keystore temporaneo della CI; non va confusa con una build di produzione.
 
----
-
-## 🤖 Two AI models — the short answer
-
-**Yes, the app ships two different AI models and both run on the phone. No cloud, no API key.**
-
-| # | Model | Runs on | Purpose | Size |
-|---|-------|---------|---------|------|
-| 1 | **Swin Transformer Food-101** (ONNX Runtime) | Device, offline | Recognises the **dish in the photo** across 101 Food-101 categories | ~336 MB |
-| 2 | **Macro estimator** — 3-hidden-layer neural network (ONNX Runtime) | Device, offline | Estimates **calories and macros** (protein, carbs, fat) and the portion size | ~7 MB |
-
-The Food screen shows a "Two on-device AI models" card that states which models are active,
-and every logged meal carries a badge (`VISION AI` / `MACRO AI`) describing how its numbers
-were produced.
-
-### Model 1 — food recognition (photo → dish)
-
-* `onnx-community/swin-finetuned-food101-ONNX` (FP32), shipped inside the APK as an
-  uncompressed asset.
-* Preprocessing matches the official model card exactly: RGB, resize to 224×224 (bilinear),
-  scale by 1/255, normalise with the ImageNet mean/std, NCHW float32.
-* The class list in `app/src/main/assets/food101_labels.txt` matches the model `config.json`
-  label order one-to-one.
-
-### Model 2 — macro estimation (dish → calories & macros)
-
-* A feed-forward network (2048 hashed text features + a one-hot Food-101 class → 512/256/128
-  hidden units) exported to ONNX and bundled as `app/src/main/assets/macro_estimator.onnx`.
-* It was trained in this repository's ML pipeline on **29 700+ labelled food entries**:
-  Open Food Facts products, a standardised nutrition dataset, and the curated USDA-style
-  reference values of the 101 Food-101 dishes.
-* Measured quality: **~54 kcal/100 g** mean absolute error on held-out foods (a constant
-  "average food" predictor is off by ~149 kcal) and **~2.5 kcal/100 g** on the 101 Food-101
-  dishes.
-* The Kotlin featurisation is covered by unit tests that compare the hashing output with the
-  values produced by the Python training script, so the app feeds the network exactly what it
-  was trained on.
-
-> The older APK only had **one** model: the vision network. Macro values came from a static
-> lookup table. The second model was missing entirely. This release adds it — integrated,
-> offline and free of any Google API.
+> **Versione e rilascio:** la fonte di verità per `versionName` e `versionCode` è
+> `app/build.gradle.kts`. Il ramo `release/v1.4.0` dichiara `1.4.0` / `1400`; la
+> pipeline rifiuta un tag `v*` incompatibile con `versionName`, così nome app,
+> checksum e provenienza restano coerenti.
 
 ---
 
-## ✨ Features
+## Funzionalità in evidenza
 
-### Nutrition
-* 📷 Photo recognition with Swin Food-101 (on-device, offline)
-* 🧠 Macro estimation with the bundled neural network (on-device, offline)
-* 🎯 Editable daily calorie and macro targets
-* 🏷️ `VISION AI` / `MACRO AI` badges on every logged meal
-* 🥗 Local nutrition reference table for manually entered foods
-* 📊 Barcode scanning for packaged products (ML Kit, offline)
+### Alimentazione
 
-### Gym
-* Workouts, sets and repetitions, training history
-* Weight, height, **BMI** and body composition
-* Strength goals and progression
+- riconoscimento del piatto da foto con **Swin Transformer Food-101**, interamente sul
+  dispositivo;
+- stima di calorie e macronutrienti con una rete neurale locale;
+- gestione di porzioni, obiettivi giornalieri e punteggio nutrizionale;
+- marcatori `VISION AI` e `MACRO AI` per distinguere l'origine dei valori registrati;
+- tabella nutrizionale locale e inserimento manuale sempre disponibile;
+- scansione del codice a barre con dati Open Food Facts, su richiesta.
 
-### Sleep & recovery
-* Hours slept and sleep quality
-* Recovery score feeding the daily progress score
+### Salute, studio e finanze
 
-### School
-* Subjects, grades and weighted average
-* **Hypothetical grade simulator** ("what if I get an X?")
+- allenamenti, serie, ripetizioni, peso, altezza, BMI e composizione corporea;
+- ore di sonno, qualità del riposo e contributo al punteggio giornaliero;
+- materie, voti, media ponderata e simulatore di voto;
+- entrate, uscite, budget mensile e risparmio;
+- tracker giornaliero, settimanale, mensile e annuale, con serie e promemoria locali.
 
-### Money
-* Income and expenses by category
-* Monthly budget and savings
+### Organizzazione e benessere
 
-### Habits & tracker
-* Daily / weekly / monthly / **yearly** tracker frequency
-* Streaks and reminders
-
-### Wardrobe
-* Digital wardrobe, mix & match outfits
-* **Weather-aware outfit generation** (temperature and conditions)
-
-### Other
-* Aggregated progress score (0–100)
-* OLED dark theme, English UI
-* First-run setup and tutorial
-* Works **without an account and without the cloud** — everything stays on the device
+- calendario annuale compatto con heatmap, selezione del giorno, attività e streak;
+- Coach interamente locale per Home, Food e Gym, con sonno e recupero;
+- task/impegni con data reale di completamento e promemoria Android locali;
+- guardaroba con foto, mix & match e suggerimenti basati sul meteo;
+- sfide, diario, attività e controllo del tempo sulle app social;
+- punteggio giornaliero pesato da 0 a 100, calcolato solo sui moduli attivi con dati;
+- interfaccia in Jetpack Compose, attualmente in inglese, con tema OLED e tema chiaro;
+- primo avvio con tutorial e configurazione iniziale.
 
 ---
 
-## 🏗️ Architecture
+## Due modelli AI, completamente locali
 
-```
+L'app include due reti ONNX diverse. Entrambe funzionano sul telefono, senza chiave API,
+senza account e senza inviare foto o dati personali a un servizio di intelligenza
+artificiale.
+
+| # | Modello | Esecuzione | Funzione | Dimensione |
+|---|---------|------------|----------|------------|
+| 1 | **Swin Transformer Food-101** (ONNX Runtime) | sul dispositivo, offline | classifica il piatto in 101 categorie Food-101 | 352.389.545 byte (~336 MiB) |
+| 2 | **Macro estimator** — MLP con 3 livelli hidden (ONNX Runtime) | sul dispositivo, offline | stima calorie, proteine, carboidrati, grassi e porzione | 7.398.723 byte (~7 MiB) |
+
+### 1. Riconoscimento alimentare
+
+- sorgente: `onnx-community/swin-finetuned-food101-ONNX`, variante FP32;
+- input `pixel_values`: float32 `[1, 3, 224, 224]`, RGB, normalizzazione ImageNet;
+- output `logits`: float32 `[1, 101]`;
+- etichette: `app/src/main/assets/food101_labels.txt`, nello stesso ordine del modello;
+- runtime: `com.microsoft.onnxruntime:onnxruntime-android:1.20.0`.
+
+Il modello è un asset ONNX non compresso. Al primo utilizzo viene materializzato in
+`noBackupFilesDir`, perché ONNX Runtime richiede un file accessibile tramite path e può
+usarne il memory mapping.
+
+### 2. Stima dei macronutrienti
+
+- rete feed-forward con livelli hidden `512 / 256 / 128` e attivazione ReLU;
+- input `features`: 2.048 feature hashate del nome + 101 valori one-hot Food-101;
+- output `nutrition_per100g`: `[1, 4]` e `portion_grams`: `[1, 1]`;
+- addestrato su oltre 29.700 voci alimentari reali e di riferimento;
+- errore misurato: circa 54 kcal/100 g sugli alimenti held-out e circa 2,5 kcal/100 g
+  sulle 101 portate Food-101.
+
+Se un modello non può essere caricato, l'app continua a funzionare con l'inserimento
+manuale e la tabella nutrizionale locale. I dettagli tecnici e i checksum sono in
+[docs/AI_MODELS.md](docs/AI_MODELS.md).
+
+---
+
+## Architettura
+
+L'applicazione è un progetto Kotlin a modulo singolo con Jetpack Compose e SQLite.
+
+```text
 app/src/main/java/com/progressone/nativeapp/
 ├── MainActivity.kt
-├── data/                     # local store, domain models, pure logic
+├── data/                     # archivio locale, modelli e logica pura
 │   ├── LocalStore.kt
 │   ├── Metrics.kt
 │   ├── NutritionMath.kt
@@ -114,94 +108,144 @@ app/src/main/java/com/progressone/nativeapp/
 │   ├── ProgressScore.kt
 │   └── ...
 ├── foodvision/
-│   ├── Food101Classifier.kt  # model 1: Swin Food-101 ONNX (on-device)
-│   ├── MacroModel.kt         # model 2: macro estimator ONNX (on-device)
-│   └── FoodDatabase.kt       # reference nutrition table + scoring
+│   ├── Food101Classifier.kt  # Swin Food-101 ONNX
+│   ├── MacroModel.kt         # stimatore macronutrienti ONNX
+│   └── FoodDatabase.kt       # tabella nutrizionale e punteggio
 ├── media/ImageProcessor.kt
 ├── reminders/ReminderScheduler.kt
 ├── weather/WeatherService.kt
-└── ui/                       # Jetpack Compose screens
-    ├── TodayScreen.kt        # minimal home
-    ├── FoodScreen.kt
-    ├── GymScreen.kt
-    ├── SleepScreen.kt
-    ├── SchoolScreen.kt
-    ├── FinanceScreen.kt
-    ├── TrackScreen.kt
-    ├── WardrobeScreen.kt
-    ├── SettingsScreen.kt
-    └── ...
+└── ui/                       # schermate e design system Compose
+```
+
+I dati strutturati sono conservati in SQLite; foto e modello Food-101 usano file nella
+directory privata dell'app, mentre il macro estimator viene letto dagli asset dell'APK.
+Il flusso alimentare locale è:
+
+```text
+foto → Swin Food-101 → piatto e confidenza
+                         ↓
+                 Macro estimator
+                         ↓
+        calorie · proteine · carboidrati · grassi · porzione
 ```
 
 ---
 
-## 🚀 Build
+## Requisiti di build
 
-### Requirements
-* JDK **21**
-* Android SDK with API 36
-* The Food-101 ONNX model downloaded (see below)
+| Componente | Valore |
+|------------|--------|
+| JDK | 21 |
+| Android SDK | platform 36, build-tools 36.0.0 |
+| Gradle | 8.14 tramite wrapper incluso |
+| Android Gradle Plugin | 8.11.1 |
+| Kotlin | 2.2.21 |
+| `compileSdk` / `targetSdk` | 36 |
+| `minSdk` | 26 |
+| namespace | `com.progressone.nativeapp` |
+
+### Download del modello escluso da git
+
+Il modello Food-101 da circa 336 MiB è intenzionalmente escluso dal repository. Prima
+di qualsiasi build che assembla l'APK:
 
 ```bash
-# 1. Download the vision model (~336 MB, not stored in git)
 ./scripts/download_food_model.sh
-
-# 2. Point the build at your SDK
-cp local.properties.example local.properties
-# then set sdk.dir=/path/to/Android/Sdk
-
-# 3. Debug build
-./gradlew :app:assembleDebug
-
-# 4. Release build (sign it with your own keystore before publishing)
-./gradlew :app:assembleRelease
 ```
 
-The debug APK uses the package `com.progressone.nativeapp.debug` and can be installed
-side by side with the release build `com.progressone.nativeapp`.
+Il file viene salvato in
+`app/src/main/assets/swin_food101_fp32.onnx`. La CI ne controlla dimensione e SHA-256:
 
-### Model assets
+```bash
+printf '%s  %s\n' \
+  'f79aefaa7af43b7a11ae47267a8f733cb1152dec223d4d3db8fc95ab5dc44a83' \
+  'app/src/main/assets/swin_food101_fp32.onnx' | sha256sum --check --strict
+```
 
-| File | Size | Source |
-|------|------|--------|
-| `app/src/main/assets/swin_food101_fp32.onnx` | ~336 MB | `https://huggingface.co/onnx-community/swin-finetuned-food101-ONNX/resolve/main/onnx/model.onnx` |
-| `app/src/main/assets/macro_estimator.onnx` | ~7 MB | trained in this repository (see `docs/AI_MODELS.md`) |
-| `app/src/main/assets/food101_labels.txt` | 1 KB | the 101 Food-101 class names |
+Il modello non deve essere aggiunto a git e non viene pubblicato come asset separato
+della release: il suo checksum e la sua origine sono documentati in `provenance.txt`.
 
-The 336 MB file is excluded from git; `scripts/download_food_model.sh` fetches it. Both
-models are also attached to the GitHub release.
+### Configurazione locale e build
 
----
+```bash
+# 1. Configurare l'SDK Android (local.properties non viene versionato)
+cp local.properties.example local.properties
+# modificare sdk.dir=/percorso/Android/Sdk
 
-## 📄 Documentation
+# 2. Scaricare e verificare il modello
+./scripts/download_food_model.sh
 
-* [docs/AI_MODELS.md](docs/AI_MODELS.md) — the two models, the training pipeline, the metrics
-* [docs/BUILD.md](docs/BUILD.md) — build, signing and release instructions
-* [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — module map and data flow
+# 3. Test JVM, lint e APK debug
+./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug
 
----
+# 4. APK release unsigned, da firmare con una chiave di produzione
+./gradlew --no-daemon assembleRelease
+```
 
-## 📱 Modules
+Output principali:
 
-| Module | Status | Notes |
-|--------|--------|-------|
-| Food | ✅ | Vision + macro AI + targets |
-| Gym | ✅ | BMI and history |
-| Sleep | ✅ | Recovery score |
-| School | ✅ | Grade simulator |
-| Money | ✅ | Budget |
-| Tracker | ✅ | Day/week/month/year |
-| Wardrobe | ✅ | Weather outfits |
-| Social | ✅ | Digital wellbeing detox |
-| Tasks | ✅ | — |
+- `app/build/outputs/apk/debug/app-debug.apk`;
+- `app/build/outputs/apk/release/app-release-unsigned.apk`.
 
-Modules can be switched on and off in Settings; disabling a module hides it from the app
-and the home screen without deleting any data or photo.
+La variante debug usa `applicationId` **`com.progressone.nativeapp.debug`** e può essere
+installata affiancata alla build di produzione `com.progressone.nativeapp`. La variante
+release non è firmata automaticamente dal progetto. Le istruzioni complete per signing,
+CI e checksum sono in [docs/BUILD.md](docs/BUILD.md).
 
 ---
 
-## 🔒 Privacy
+## CI e GitHub Release
 
-Everything is stored locally in the app's private storage. The only optional network calls
-are the weather lookup (Open-Meteo) and the Open Food Facts barcode lookup. The AI models
-never leave the device.
+Il workflow [`.github/workflows/android.yml`](.github/workflows/android.yml) si esegue su:
+
+- push a qualsiasi ramo;
+- pull request;
+- esecuzione manuale;
+- tag con prefisso `v*`.
+
+Per ogni evento scarica e verifica il modello escluso da git, esegue i test JVM
+`testDebugUnitTest`, il task `lintDebug` e `assembleDebug`, avvia uno smoke test
+strumentato su emulatore x86_64, controlla l'`applicationId` e la firma dell'APK, quindi
+calcola lo SHA-256.
+
+Quando il trigger è un tag `v*`, il job di release usa la GitHub CLI per creare o
+aggiornare la GitHub Release con:
+
+- `Progress1Percent-debug.apk`;
+- `Progress1Percent-debug.apk.sha256`;
+- `provenance.txt`.
+
+La provenienza registra commit, ref, run della CI, versione Android, SHA-256 dell'APK,
+firma debug e checksum/origine del modello. La procedura completa è in
+[docs/RELEASE.md](docs/RELEASE.md).
+
+> **Importante:** senza una chiave di produzione configurata, la pipeline pubblica
+> deliberatamente la sola variante debug. Non presentare questi asset come build
+> production né utilizzarli per un aggiornamento dell'app con
+> `com.progressone.nativeapp`.
+
+---
+
+## Documentazione
+
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — componenti e flussi dati;
+- [docs/AI_MODELS.md](docs/AI_MODELS.md) — modelli, preprocessamento, training e integrità;
+- [docs/BUILD.md](docs/BUILD.md) — ambiente, build, lint, test e signing;
+- [docs/RELEASE.md](docs/RELEASE.md) — CI, checksum, provenienza e rilascio;
+- [docs/PRIVACY.md](docs/PRIVACY.md) — dati trattati, rete, permessi e conservazione.
+
+---
+
+## Privacy e dati
+
+I dati strutturati, le foto, le preferenze e i risultati delle reti locali restano
+nello spazio privato dell'applicazione. Sono opzionali soltanto due ricerche online:
+
+1. geolocalizzazione e previsioni meteo tramite Open-Meteo, quando richieste dall'utente;
+2. dati nutrizionali di un codice a barre tramite Open Food Facts.
+
+L'app non contiene annunci, telemetria proprietaria, account cloud o upload di foto.
+Il backup è esportato esclusivamente nella posizione scelta dall'utente tramite il
+Storage Access Framework. Il backup Android è disabilitato (`android:allowBackup="false"`).
+I dettagli, incluse le eccezioni di rete e i permessi speciali, sono descritti in
+[docs/PRIVACY.md](docs/PRIVACY.md).
