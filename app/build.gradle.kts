@@ -48,9 +48,6 @@ android {
         noCompress += listOf("onnx")
     }
     packaging {
-        jniLibs {
-            useLegacyPackaging = true
-        }
         resources {
             excludes += "/META-INF/{AL2.0,LGPL2.1}"
         }
@@ -68,16 +65,16 @@ dependencies {
     implementation("androidx.compose.animation:animation")
     implementation("androidx.activity:activity-compose:1.11.0")
     implementation("androidx.core:core-ktx:1.17.0")
+    // 1.1.0 ships the 16 KiB-safe RELRO layout for the native path helper.
+    implementation("androidx.graphics:graphics-path:1.1.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.9.2")
     implementation("androidx.exifinterface:exifinterface:1.4.1")
     implementation("com.google.android.gms:play-services-mlkit-subject-segmentation:16.0.0-beta1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.10.2")
-    // Offline image labels only; NOT a food-specific portion or nutrition model.
-    implementation("com.google.mlkit:image-labeling:17.0.9")
     // Offline barcode scanning for packaged foods (no photo uploads).
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
-    // On-device Food Vision ONNX Runtime
-    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.20.0")
+    // On-device Food Vision ONNX Runtime. 1.23.2 includes 16 KB ELF alignment.
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.23.2")
     // On-device macro estimation model (ONNX). No cloud, no API key.
 
     testImplementation("junit:junit:4.13.2")

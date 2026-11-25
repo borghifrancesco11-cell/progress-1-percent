@@ -152,9 +152,10 @@ class ProgressIntelligenceTest {
             date = "2026-11-05",
         )
 
-        // Only "active" and "legacy" are eligible, and only one has a completion.
+        // Only "active" and "legacy" are eligible. The finished challenge's valid completion
+        // remains historical activity even though it is no longer in today's denominator.
         assertEquals(50, result.moduleScores["challenges"])
-        assertEquals(1, result.completedActions)
+        assertEquals(2, result.completedActions)
     }
 
     @Test
@@ -216,6 +217,165 @@ class ProgressIntelligenceTest {
     }
 
     @Test
+    fun taskWithoutDueDateIsNeverOverdue() {
+        val task = JSONObject().apply {
+            put("id", "unscheduled")
+            put("name", "No deadline")
+            put("done", false)
+        }
+        val fixture = snapshot(tasks = listOf(task))
+
+        assertFalse(TaskHistory.isOverdue(task, "2026-11-05"))
+        val coach = LocalCoachEngine.home(
+            snapshot = fixture,
+            enabledModules = setOf("tasks"),
+            totalScore = 0,
+            date = "2026-11-05",
+        )
+        assertFalse(coach.title.contains("overdue", ignoreCase = true))
+    }
+
+    @Test
+    fun taskCompletedBeforeDueDateIsAttributedToDueDate() {
+        val task = JSONObject().apply {
+            put("id", "task-early")
+            put("due", "2026-11-05")
+            put("completedAt", "2026-11-03")
+            put("done", true)
+        }
+        val fixture = snapshot(tasks = listOf(task))
+
+        assertEquals(listOf("2026-11-05"), TaskHistory.completedDates(task))
+        val dueDay = DailyProgressEngine.forDate(
+            snapshot = fixture,
+            enabledModules = setOf("tasks"),
+            date = "2026-11-05",
+        )
+        assertEquals(100, dueDay.moduleScores["tasks"])
+        assertEquals(1, dueDay.completedActions)
+
+        val earlyDay = DailyProgressEngine.forDate(
+            snapshot = fixture,
+            enabledModules = setOf("tasks"),
+            date = "2026-11-03",
+        )
+        assertFalse("tasks" in earlyDay.moduleScores)
+        assertEquals(0, earlyDay.completedActions)
+    }
+
+    @Test
+    fun taskCompletedAfterDueDateRemainsOnActualCompletionDate() {
+        val task = JSONObject().apply {
+            put("id", "task-late")
+            put("due", "2026-11-01")
+            put("completedAt", "2026-11-03")
+            put("done", true)
+        }
+        val fixture = snapshot(tasks = listOf(task))
+
+        assertEquals(listOf("2026-11-03"), TaskHistory.completedDates(task))
+        val dueDay = DailyProgressEngine.forDate(
+            snapshot = fixture,
+            enabledModules = setOf("tasks"),
+            date = "2026-11-01",
+        )
+        assertEquals(0, dueDay.moduleScores["tasks"])
+        val completedDay = DailyProgressEngine.forDate(
+            snapshot = fixture,
+            enabledModules = setOf("tasks"),
+            date = "2026-11-03",
+        )
+        assertEquals(100, completedDay.moduleScores["tasks"])
+        assertEquals(1, completedDay.completedActions)
+    }
+
+    @Test
+    fun archivedTrackerCompletionRemainsInHistoricalHeatmapAndStreak() {
+        val tracker = JSONObject().apply {
+            put("id", "archived-tracker")
+            put("name", "Archived habit")
+            put("archived", true)
+        }
+        val fixture = snapshot(
+            trackers = listOf(tracker),
+            logs = listOf(log("archived-tracker", "2026-11-05")),
+        )
+        val history = DailyProgressEngine.year(
+            snapshot = fixture,
+            enabledModules = setOf("track"),
+            year = 2026,
+        )
+
+        assertEquals(1, DailyProgressEngine.activeDays(2026, history))
+        assertTrue(tracker.optBoolean("archived"))
+        assertEquals(
+            1,
+            DailyProgressEngine.streak(
+                snapshot = fixture,
+                enabledModules = setOf("track"),
+                today = LocalDate.of(2026, 11, 6),
+            ),
+        )
+    }
+
+    @Test
+    fun finishedChallengeCompletionRemainsInHistoricalHeatmapAndStreak() {
+        val fixture = snapshot(
+            challenges = listOf(
+                challenge(
+                    id = "finished-challenge",
+                    startDate = "2026-11-01",
+                    endDate = "2026-11-07",
+                    finished = true,
+                ),
+            ),
+            logs = listOf(log("finished-challenge", "2026-11-05")),
+        )
+        val history = DailyProgressEngine.year(
+            snapshot = fixture,
+            enabledModules = setOf("challenges"),
+            year = 2026,
+        )
+
+        assertEquals(1, DailyProgressEngine.activeDays(2026, history))
+        assertTrue(fixture.challenges.single().optBoolean("finished"))
+        assertEquals(
+            1,
+            DailyProgressEngine.streak(
+                snapshot = fixture,
+                enabledModules = setOf("challenges"),
+                today = LocalDate.of(2026, 11, 6),
+            ),
+        )
+    }
+
+    @Test
+    fun disabledSleepDoesNotChangeGymScore() {
+        val sleep = JSONObject().apply {
+            put("date", "2026-11-05")
+            put("minutes", 120)
+            put("quality", 1)
+        }
+        val workout = JSONObject().put("date", "2026-11-05")
+        val fixture = snapshot(sleeps = listOf(sleep), gymWorkouts = listOf(workout))
+
+        val gymOnly = DailyProgressEngine.forDate(
+            snapshot = fixture,
+            enabledModules = setOf("gym"),
+            date = "2026-11-05",
+        )
+        assertEquals(100, gymOnly.moduleScores["gym"])
+        assertFalse("sleep" in gymOnly.moduleScores)
+
+        val gymWithSleep = DailyProgressEngine.forDate(
+            snapshot = fixture,
+            enabledModules = setOf("gym", "sleep"),
+            date = "2026-11-05",
+        )
+        assertTrue(gymWithSleep.moduleScores.getValue("gym") < 100)
+    }
+
+    @Test
     fun coachRoutesOnlyTargetEnabledModulesAndAreDeterministic() {
         val lowSleep = JSONObject().apply {
             put("date", "2026-11-05")
@@ -265,5 +425,22 @@ class ProgressIntelligenceTest {
             date = "2026-11-05",
         )
         assertEquals("sleep", gymWithSleep.actionRoute)
+
+        val foodAction = LocalCoachEngine.food(
+            snapshot = snapshot(),
+            enabledModules = setOf("food"),
+            targetKcal = 2200.0,
+            targetProtein = 120.0,
+            date = "2026-11-05",
+        )
+        assertEquals("food", foodAction.actionRoute)
+
+        val gymWithoutSleepData = LocalCoachEngine.gym(
+            snapshot = snapshot(),
+            enabledModules = setOf("gym"),
+            date = "2026-11-05",
+        )
+        assertEquals("gym", gymWithoutSleepData.actionRoute)
+        assertFalse(gymWithoutSleepData.message.contains("sleep supports", ignoreCase = true))
     }
 }

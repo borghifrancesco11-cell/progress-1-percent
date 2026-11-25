@@ -7,8 +7,8 @@ l'inferenza.
 
 | Modello | File | Scopo | Runtime |
 |---------|------|-------|---------|
-| Swin Transformer Food-101 FP32 | `swin_food101_fp32.onnx` | foto → piatto e confidenza | ONNX Runtime Android 1.20.0 |
-| Macro estimator | `macro_estimator.onnx` | piatto/nome → calorie, macronutrienti e porzione | ONNX Runtime Android 1.20.0 |
+| Swin Transformer Food-101 FP32 | `swin_food101_fp32.onnx` | foto → piatto e confidenza | ONNX Runtime Android 1.23.2 |
+| Macro estimator | `macro_estimator.onnx` | piatto/nome → calorie, macronutrienti e porzione | ONNX Runtime Android 1.23.2 |
 
 Entrambi i file sono locali. Il modello Food-101 è escluso da Git e viene scaricato al
 build time; il macro estimator, più piccolo, è versionato intenzionalmente.
@@ -27,7 +27,7 @@ build time; il macro estimator, più piccolo, è versionato intenzionalmente.
 | Input | `pixel_values`, float32 `[1, 3, 224, 224]` |
 | Output | `logits`, float32 `[1, 101]` |
 | Preprocessing | RGB, resize 224×224, `/255`, normalizzazione ImageNet |
-| Runtime | `com.microsoft.onnxruntime:onnxruntime-android:1.20.0` |
+| Runtime | `com.microsoft.onnxruntime:onnxruntime-android:1.23.2` |
 | Implementazione | `app/src/main/java/com/progressone/nativeapp/foodvision/Food101Classifier.kt` |
 
 La sorgente è il repository Hugging Face
@@ -35,8 +35,11 @@ La sorgente è il repository Hugging Face
 distribuito con licenza Apache-2.0. L'URL usato dallo script e dalla CI è:
 
 ```text
-https://huggingface.co/onnx-community/swin-finetuned-food101-ONNX/resolve/main/onnx/model.onnx
+https://huggingface.co/onnx-community/swin-finetuned-food101-ONNX/resolve/e5e50bfc6425aa546f3b4421ca8bd79d0dd610b8/onnx/model.onnx
 ```
+
+La revisione Hugging Face `e5e50bfc6425aa546f3b4421ca8bd79d0dd610b8` è fissa: il
+download non dipende da un branch `main` mutabile.
 
 ### Integrità del file
 
@@ -61,9 +64,10 @@ printf '%s  %s\n' \
   'app/src/main/assets/swin_food101_fp32.onnx' | sha256sum --check --strict
 ```
 
-`main` è un riferimento mutabile. Se upstream pubblica un nuovo file, la build deve
-interrompersi finché il nuovo contenuto non è stato verificato e il checksum non è stato
-aggiornato in modo esplicito. Il binario non deve essere aggiunto al repository.
+La revisione upstream è fissata nel comando e il checksum è un secondo controllo
+indipendente. Se upstream pubblica un nuovo file, la build deve interrompersi finché
+il nuovo contenuto non è stato verificato e checksum e revisione non sono stati
+aggiornati in modo esplicito. Il binario non deve essere aggiunto al repository.
 
 ### Preprocessing
 
@@ -92,7 +96,8 @@ ONNX Runtime richiede un file reale. Al primo utilizzo l'asset viene copiato in
 `context.noBackupFilesDir`:
 
 1. il file temporaneo viene scritto come `swin_food101_fp32.onnx.part`;
-2. la copia viene convalidata confrontandone la lunghezza con l'asset;
+2. la copia viene convalidata confrontandone la lunghezza con l'asset e il suo SHA-256
+   con il checksum noto;
 3. il file temporaneo viene rinominato atomicamente;
 4. la sessione ONNX viene aperta tramite path, consentendo il memory mapping.
 
@@ -113,7 +118,7 @@ preparazione può essere ripetuta. Il modello non viene mai inviato a un server.
 | Input | `features`, float32 `[1, 2149]` |
 | Output | `nutrition_per100g`, float32 `[1, 4]`; `portion_grams`, float32 `[1, 1]` |
 | Valori di output | kcal, proteine, carboidrati, grassi; grammi della porzione |
-| Runtime | `com.microsoft.onnxruntime:onnxruntime-android:1.20.0` |
+| Runtime | `com.microsoft.onnxruntime:onnxruntime-android:1.23.2` |
 | Implementazione | `app/src/main/java/com/progressone/nativeapp/foodvision/MacroModel.kt` |
 
 Il file versionato è:
@@ -121,6 +126,11 @@ Il file versionato è:
 ```text
 app/src/main/assets/macro_estimator.onnx
 ```
+
+Il file versionato ha dimensione `7.398.723` byte e SHA-256
+`a4c7ed6e196051d40b137b1277148ebd2c2d9b87f04d25ce5aeb42a2a351de26`. La CI verifica
+entrambi i valori prima di ogni build; la provenienza del file è descritta nella
+sezione seguente.
 
 ### Vettore delle feature
 

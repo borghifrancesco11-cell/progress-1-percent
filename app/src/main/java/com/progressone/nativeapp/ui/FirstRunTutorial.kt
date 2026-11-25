@@ -15,6 +15,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.progressone.nativeapp.R
+import com.progressone.nativeapp.data.InputValidation
 import com.progressone.nativeapp.data.LocalStore
 import com.progressone.nativeapp.data.ModulePreferences
 import com.progressone.nativeapp.data.moduleSelected
@@ -25,6 +26,10 @@ fun FirstRunTutorial(store: LocalStore, onFinish: () -> Unit) {
     var step by remember { mutableIntStateOf(0) }
     var heightCm by rememberSaveable { mutableStateOf("") }
     var weightKg by rememberSaveable { mutableStateOf("") }
+    val parsedHeight = if (heightCm.isBlank()) null else InputValidation.parseHeightCm(heightCm)
+    val parsedWeight = if (weightKg.isBlank()) null else InputValidation.parseWeightKg(weightKg)
+    val profileValid = (heightCm.isBlank() || parsedHeight != null) &&
+        (weightKg.isBlank() || parsedWeight != null)
 
     Column(Modifier.fillMaxSize().padding(horizontal = 22.dp, vertical = 14.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -65,6 +70,14 @@ fun FirstRunTutorial(store: LocalStore, onFinish: () -> Unit) {
                         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number))
                     FormField("Weight (kg)", weightKg, { weightKg = it.take(5) },
                         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number))
+                    if (!profileValid) {
+                        Text(
+                            "Enter plausible values: height ${InputValidation.MIN_HEIGHT_CM.toInt()}–${InputValidation.MAX_HEIGHT_CM.toInt()} cm " +
+                                "and weight ${InputValidation.MIN_WEIGHT_KG.toInt()}–${InputValidation.MAX_WEIGHT_KG.toInt()} kg.",
+                            color = MaterialTheme.colorScheme.error,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
                 }
                 else -> {
                     Text("Ready to begin", style = MaterialTheme.typography.headlineMedium,
@@ -79,14 +92,13 @@ fun FirstRunTutorial(store: LocalStore, onFinish: () -> Unit) {
             if (step > 0) OutlinedButton(onClick = { step-- }) { Text("Back") }
             Button(onClick = {
                 if (step == 2) {
-                    val h = heightCm.cleanNumber()
-                    val w = weightKg.cleanNumber()
-                    if (h > 0) store.setSetting("user_height_cm", h.toString())
-                    if (w > 0) store.setSetting("user_weight_kg", w.toString())
+                    if (!profileValid) return@Button
+                    parsedHeight?.let { store.setSetting("user_height_cm", it.toString()) }
+                    parsedWeight?.let { store.setSetting("user_weight_kg", it.toString()) }
                     store.setSetting("onboarding_complete", "true")
                     onFinish()
                 } else step++
-            }, Modifier.weight(1f)) {
+            }, Modifier.weight(1f), enabled = step != 2 || profileValid) {
                 Text(if (step == 2) "Open Progress 1%" else "Continue")
             }
         }

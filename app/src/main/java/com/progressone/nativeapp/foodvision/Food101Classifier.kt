@@ -14,6 +14,7 @@ import java.io.Closeable
 import java.io.File
 import java.io.FileOutputStream
 import java.nio.FloatBuffer
+import java.security.MessageDigest
 import kotlin.math.exp
 
 /**
@@ -107,6 +108,8 @@ class Food101Classifier private constructor(context: Context) : Closeable {
     companion object {
         const val MODEL_FILE = "swin_food101_fp32.onnx"
         const val LABELS_FILE = "food101_labels.txt"
+        const val MODEL_SIZE_BYTES: Long = 352_389_545L
+        const val MODEL_SHA256: String = "f79aefaa7af43b7a11ae47267a8f733cb1152dec223d4d3db8fc95ab5dc44a83"
         private const val TAG = "FoodVision"
 
         @Volatile
@@ -147,7 +150,9 @@ class Food101Classifier private constructor(context: Context) : Closeable {
             val target = File(directory, MODEL_FILE)
 
             val expected = assetLength(context)
-            if (target.isFile && expected > 0 && target.length() == expected) return target
+            if (target.isFile && expected > 0 && target.length() == expected && sha256(target) == MODEL_SHA256) {
+                return target
+            }
 
             val usable = directory.usableSpace
             if (expected > 0 && usable < expected + MIN_FREE_BYTES) {
@@ -171,6 +176,9 @@ class Food101Classifier private constructor(context: Context) : Closeable {
                         "Incomplete AI model download (${temporary.length()} of $expected bytes)"
                     )
                 }
+                if (temporary.length() != MODEL_SIZE_BYTES || sha256(temporary) != MODEL_SHA256) {
+                    throw IllegalStateException("AI model integrity verification failed")
+                }
                 if (!temporary.renameTo(target)) {
                     target.delete()
                     if (!temporary.renameTo(target)) {
@@ -183,6 +191,19 @@ class Food101Classifier private constructor(context: Context) : Closeable {
             }
             Log.i(TAG, "Food vision model installed in ${target.length() / 1024 / 1024} MB")
             return target
+        }
+
+        private fun sha256(file: File): String {
+            val digest = MessageDigest.getInstance("SHA-256")
+            file.inputStream().use { input ->
+                val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+                while (true) {
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    if (count > 0) digest.update(buffer, 0, count)
+                }
+            }
+            return digest.digest().joinToString("") { "%02x".format(it) }
         }
 
         private fun assetLength(context: Context): Long = runCatching {

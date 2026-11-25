@@ -276,31 +276,35 @@ object ImageProcessor {
         val format = if (transparent) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG
         val extension = if (transparent) "png" else "jpg"
         val name = "${LocalStore.freshId()}_source.$extension"
-        val target = store.photoFile(name) ?: error("Unsafe photo name")
-        val temp = File(store.photoDirectory, "$name.tmp")
-        try {
-            FileOutputStream(temp).use { stream ->
-                check(bitmap.compress(format, if (transparent) 100 else 88, stream)) {
-                    "Unable to save restoration source"
+        store.withMediaLock {
+            val target = store.photoFile(name) ?: error("Unsafe photo name")
+            val temp = File(store.photoDirectory, "$name.tmp")
+            try {
+                FileOutputStream(temp).use { stream ->
+                    check(bitmap.compress(format, if (transparent) 100 else 88, stream)) {
+                        "Unable to save restoration source"
+                    }
+                    stream.fd.sync()
                 }
-                stream.fd.sync()
-            }
-            check(temp.renameTo(target)) { "Could not finalize restoration source" }
-            name
-        } finally { temp.delete() }
+                check(temp.renameTo(target)) { "Could not finalize restoration source" }
+                name
+            } finally { temp.delete() }
+        }
     }
 
     suspend fun savePng(store: LocalStore, bitmap: Bitmap): String = withContext(Dispatchers.IO) {
         val filename = "${LocalStore.freshId()}.png"
-        val target = store.photoFile(filename) ?: error("Unsafe path")
-        val temporary = File(store.photoDirectory, "$filename.tmp")
-        try {
-            FileOutputStream(temporary).use { stream ->
-                check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)) { "PNG encoding failed" }
-                stream.fd.sync()
-            }
-            check(temporary.renameTo(target)) { "Failed to save image" }
-            filename
-        } finally { temporary.delete() }
+        store.withMediaLock {
+            val target = store.photoFile(filename) ?: error("Unsafe path")
+            val temporary = File(store.photoDirectory, "$filename.tmp")
+            try {
+                FileOutputStream(temporary).use { stream ->
+                    check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)) { "PNG encoding failed" }
+                    stream.fd.sync()
+                }
+                check(temporary.renameTo(target)) { "Failed to save image" }
+                filename
+            } finally { temporary.delete() }
+        }
     }
 }

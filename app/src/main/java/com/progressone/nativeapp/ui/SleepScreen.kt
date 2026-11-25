@@ -10,7 +10,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -22,6 +21,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.progressone.nativeapp.data.InputValidation
 import com.progressone.nativeapp.data.LocalStore
 import com.progressone.nativeapp.data.SleepUtils
 import org.json.JSONObject
@@ -35,7 +35,6 @@ import kotlin.math.roundToInt
 fun SleepScreen(
     store: LocalStore,
     snapshot: AppSnapshot,
-    onBack: () -> Unit
 ) {
     val entries = snapshot.sleeps
     val targetHours = remember(store.revision) {
@@ -55,12 +54,7 @@ fun SleepScreen(
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
-                }
-                PageHeading("SLEEP & RECOVERY", "Sleep", "Track nights, quality and physical recovery")
-            }
+            PageHeading("SLEEP & RECOVERY", "Sleep", "Track nights, quality and physical recovery")
         }
 
         item {
@@ -320,6 +314,12 @@ private fun SleepEditor(
     var targetText by remember(targetHours) { mutableStateOf(targetHours.formatHours().removeSuffix("h")) }
 
     val duration = remember(bedtime, wakeTime) { SleepUtils.durationBetween(bedtime, wakeTime) }
+    val validDate = InputValidation.isValidDate(date)
+    val validBedtime = InputValidation.isValidTime(bedtime)
+    val validWakeTime = InputValidation.isValidTime(wakeTime)
+    val parsedTarget = remember(targetText) {
+        targetText.trim().replace(',', '.').toDoubleOrNull()?.takeIf { it.isFinite() }
+    }
 
     BottomSheetFrame(if (original == null) "Record a night" else "Edit night", onDismiss) {
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -329,9 +329,13 @@ private fun SleepEditor(
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Column(Modifier.weight(1f)) {
                 Text(
-                    text = if (duration > 0) "Duration ${SleepUtils.formatDuration(duration)}" else "Invalid time (use HH:mm)",
+                    text = if (duration > 0 && validBedtime && validWakeTime) {
+                        "Duration ${SleepUtils.formatDuration(duration)}"
+                    } else {
+                        "Invalid time (use HH:mm)"
+                    },
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (duration > 0) Mint else MaterialTheme.colorScheme.error,
+                    color = if (duration > 0 && validBedtime && validWakeTime) Mint else MaterialTheme.colorScheme.error,
                     fontWeight = FontWeight.SemiBold
                 )
                 Text(
@@ -359,6 +363,13 @@ private fun SleepEditor(
         }
         FormField("Note (optional)", note, { note = it.take(140) })
         FormField("Date YYYY-MM-DD", date, { date = it.take(10) })
+        if (!validDate) {
+            Text(
+                "Enter a real date between ${InputValidation.MIN_VALID_YEAR} and ${InputValidation.MAX_VALID_YEAR}.",
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
 
         Button(
             onClick = {
@@ -372,12 +383,13 @@ private fun SleepEditor(
                 record.put("quality", quality)
                 record.put("note", note.trim())
                 store.put("sleep", record)
-                val parsedTarget = targetText.cleanNumber()
-                if (parsedTarget > 0) store.setSetting("sleep_target_hours", parsedTarget.coerceIn(4.0, 12.0).toString())
+                if (parsedTarget != null && parsedTarget > 0) {
+                    store.setSetting("sleep_target_hours", parsedTarget.coerceIn(4.0, 12.0).toString())
+                }
                 onDismiss()
             },
             modifier = Modifier.fillMaxWidth(),
-            enabled = duration > 0 && date.matches(Regex("\\d{4}-\\d{2}-\\d{2}")) && note.length <= 140
+            enabled = duration > 0 && validDate && validBedtime && validWakeTime && note.length <= 140
         ) {
             Text(if (original == null) "Save night" else "Update night")
         }

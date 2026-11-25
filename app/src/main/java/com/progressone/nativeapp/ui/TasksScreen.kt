@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -16,6 +15,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
+import com.progressone.nativeapp.data.InputValidation
 import com.progressone.nativeapp.data.LocalStore
 import com.progressone.nativeapp.data.TaskHistory
 import org.json.JSONObject
@@ -35,7 +35,8 @@ private fun persistTask(store: LocalStore, task: JSONObject, update: (JSONObject
 fun TasksScreen(
     store: LocalStore,
     snapshot: AppSnapshot,
-    onBack: () -> Unit
+    focusTaskId: String? = null,
+    onTaskFocusHandled: () -> Unit = {},
 ) {
     val todayIso = LocalDate.now().toString()
     var taskEditor by remember { mutableStateOf<JSONObject?>(null) }
@@ -44,18 +45,28 @@ fun TasksScreen(
     val pendingTasks = snapshot.tasks.filter { !it.optBoolean("done") }
     val completedTasks = snapshot.tasks.filter { it.optBoolean("done") }
 
+    // A notification carries the exact task id. Open that task directly instead of
+    // making the user find it again in the list.
+    LaunchedEffect(focusTaskId) {
+        val id = focusTaskId?.trim().orEmpty()
+        if (id.isBlank()) return@LaunchedEffect
+        val task = snapshot.tasks.firstOrNull { it.optString("id") == id }
+        if (task == null) {
+            onTaskFocusHandled()
+            return@LaunchedEffect
+        }
+        taskEditor = task
+        showTaskEditor = true
+        onTaskFocusHandled()
+    }
+
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(20.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
-                }
-                PageHeading("DAILY TO-DOS", "Tasks", "Organize, track and complete your daily goals")
-            }
+            PageHeading("DAILY TO-DOS", "Tasks", "Organize, track and complete your daily goals")
         }
 
         // Summary Card
@@ -273,6 +284,8 @@ fun TaskEditorModal(store: LocalStore, original: JSONObject?, onDismiss: () -> U
     var confirmDelete by remember { mutableStateOf(false) }
 
     val today = LocalDate.now().toString()
+    val validDue = due.isBlank() || InputValidation.isValidDate(due)
+    val validReminder = due.isBlank() || InputValidation.isValidTime(reminder)
 
     BottomSheetFrame(if (original == null) "Add task" else "Edit task", onDismiss) {
         FormField("Task description", name, { name = it.take(120) })
@@ -302,11 +315,21 @@ fun TaskEditorModal(store: LocalStore, original: JSONObject?, onDismiss: () -> U
 
         if (due.isNotBlank()) {
             FormField("Local reminder time (HH:mm)", reminder, { reminder = it.take(5) })
+            if (!validReminder) {
+                Text("Enter a valid reminder time in HH:mm format.",
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall)
+            }
             Text(
                 "The reminder is scheduled on this device and can be disabled globally in Settings.",
                 style = MaterialTheme.typography.labelSmall,
                 color = Mist
             )
+        }
+        if (!validDue) {
+            Text("Enter a real date between ${InputValidation.MIN_VALID_YEAR} and ${InputValidation.MAX_VALID_YEAR}.",
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall)
         }
         
         Button(
@@ -320,9 +343,7 @@ fun TaskEditorModal(store: LocalStore, original: JSONObject?, onDismiss: () -> U
                 onDismiss()
             },
             modifier = Modifier.fillMaxWidth(),
-            enabled = name.isNotBlank() &&
-                (due.isBlank() || runCatching { LocalDate.parse(due) }.isSuccess) &&
-                (due.isBlank() || runCatching { LocalTime.parse(reminder) }.isSuccess)
+            enabled = name.isNotBlank() && validDue && validReminder
         ) {
             Text("Save task")
         }

@@ -20,6 +20,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.progressone.nativeapp.data.InputValidation
 import com.progressone.nativeapp.data.LocalStore
 import com.progressone.nativeapp.data.ModulePreferences
 import com.progressone.nativeapp.data.moduleSelected
@@ -42,6 +43,7 @@ fun SettingsScreen(store: LocalStore, onBack: () -> Unit, onReplayTutorial: () -
     var profileWeight by remember(uiRevision) { mutableStateOf(store.setting("user_weight_kg", "")) }
     var profileHeight by remember(uiRevision) { mutableStateOf(store.setting("user_height_cm", "")) }
     var profileAge by remember(uiRevision) { mutableStateOf(store.setting("user_age", "")) }
+    var profileError by remember { mutableStateOf("") }
     val currentTheme = remember(uiRevision) {
         ThemeCatalog.find(store.setting("ui_theme", "oled")).key
     }
@@ -60,17 +62,16 @@ fun SettingsScreen(store: LocalStore, onBack: () -> Unit, onReplayTutorial: () -
 
 
     val saveBackup = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        ActivityResultContracts.CreateDocument("application/zip")) { uri ->
         if (uri != null) scope.launch {
             busy = true
             try {
                 withContext(Dispatchers.IO) {
-                    val json = store.exportJson()
                     ctx.contentResolver.openOutputStream(uri, "w")?.use { stream ->
-                        stream.write(json.toByteArray(Charsets.UTF_8))
+                        store.exportArchive(stream)
                     } ?: error("Could not write selected file")
                 }
-                message = "Backup exported to the selected location."
+                message = "ZIP backup exported to the selected location."
             } catch (e: Exception) { message = e.message ?: "Backup export failed" }
             finally { busy = false }
         }
@@ -86,42 +87,72 @@ fun SettingsScreen(store: LocalStore, onBack: () -> Unit, onReplayTutorial: () -
                 Eyebrow("PROFILO & PARAMETRI FISICI", Ice)
                 Text("Nome, peso e altezza vengono usati per stimare le porzioni, calcolare il BMI e personalizzare i suggerimenti.",
                     color = Mist, style = MaterialTheme.typography.bodySmall)
-                FormField("Nome", profileName, { profileName = it.take(40) })
+                FormField("Nome", profileName, {
+                    profileName = it.take(40); profileError = ""
+                })
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    FormField("Peso (kg)", profileWeight, { profileWeight = it.take(5) }, Modifier.weight(1f))
-                    FormField("Altezza (cm)", profileHeight, { profileHeight = it.take(4) }, Modifier.weight(1f))
+                    FormField("Peso (kg)", profileWeight, {
+                        profileWeight = it.take(8); profileError = ""
+                    }, Modifier.weight(1f))
+                    FormField("Altezza (cm)", profileHeight, {
+                        profileHeight = it.take(8); profileError = ""
+                    }, Modifier.weight(1f))
                 }
-                FormField("Età", profileAge, { profileAge = it.take(3) })
-                val h = profileHeight.cleanNumber()
-                val w = profileWeight.cleanNumber()
-                if (h > 0 && w > 0) {
-                    val bmi = w / ((h / 100.0) * (h / 100.0))
+                FormField("Età", profileAge, {
+                    profileAge = it.take(8); profileError = ""
+                })
+                val parsedHeight = if (profileHeight.isBlank()) null else InputValidation.parseHeightCm(profileHeight)
+                val parsedWeight = if (profileWeight.isBlank()) null else InputValidation.parseWeightKg(profileWeight)
+                val parsedAge = if (profileAge.isBlank()) null else InputValidation.parseAgeYears(profileAge)
+                if (parsedHeight != null && parsedWeight != null && parsedHeight > 0 && parsedWeight > 0) {
+                    val bmi = parsedWeight / ((parsedHeight / 100.0) * (parsedHeight / 100.0))
                     Text("BMI ${"%.1f".format(java.util.Locale.US, bmi)}", color = Mint,
                         style = MaterialTheme.typography.titleSmall)
                 }
+                if (profileError.isNotBlank()) {
+                    Text(profileError, color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall)
+                }
                 Button(onClick = {
-                    store.setSetting("user_name", profileName.trim())
-                    store.setSetting("user_weight_kg", profileWeight.cleanNumber().toString())
-                    store.setSetting("user_height_cm", profileHeight.cleanNumber().toString())
-                    store.setSetting("user_age", profileAge.cleanNumber().toString())
-                    message = "Profilo salvato."
+                    val weight = if (profileWeight.isBlank()) null else InputValidation.parseWeightKg(profileWeight)
+                    val height = if (profileHeight.isBlank()) null else InputValidation.parseHeightCm(profileHeight)
+                    val age = if (profileAge.isBlank()) null else InputValidation.parseAgeYears(profileAge)
+                    val error = when {
+                        profileWeight.isNotBlank() && weight == null ->
+                            "Weight must be between ${InputValidation.MIN_WEIGHT_KG.toInt()} and ${InputValidation.MAX_WEIGHT_KG.toInt()} kg."
+                        profileHeight.isNotBlank() && height == null ->
+                            "Height must be between ${InputValidation.MIN_HEIGHT_CM.toInt()} and ${InputValidation.MAX_HEIGHT_CM.toInt()} cm."
+                        profileAge.isNotBlank() && age == null ->
+                            "Age must be between ${InputValidation.MIN_AGE_YEARS.toInt()} and ${InputValidation.MAX_AGE_YEARS.toInt()} years."
+                        else -> ""
+                    }
+                    if (error.isNotBlank()) {
+                        profileError = error
+                    } else {
+                        store.setSetting("user_name", profileName.trim())
+                        store.setSetting("user_weight_kg", weight?.toString().orEmpty())
+                        store.setSetting("user_height_cm", height?.toString().orEmpty())
+                        store.setSetting("user_age", age?.toString().orEmpty())
+                        profileError = ""
+                        message = "Profilo salvato."
+                    }
                 }, Modifier.fillMaxWidth()) { Text("Save profile") }
             }
         }
         item {
             FrostCard(Modifier.fillMaxWidth()) {
                 Eyebrow("DATA & PRIVACY", Mint)
-                Text(tr("Local database, local photos, no account, no analytics, no ads."), color = Mist)
+                Text(tr("Local database and photos, no account, no ads. ML Kit may send diagnostic telemetry; photos and AI inference stay on your device."), color = Mist)
                 Text(tr("You are responsible for exporting a backup before uninstalling or changing devices."), color = Mist)
-                Button(onClick = { saveBackup.launch("progress1-native-backup.json") },
+                Button(onClick = { saveBackup.launch("progress1-native-backup.zip") },
                     modifier = Modifier.fillMaxWidth(), enabled = !busy) {
-                    Icon(Icons.Rounded.FileDownload, null); Spacer(Modifier.width(8.dp)); Text(tr("Export JSON backup"))
+                    Icon(Icons.Rounded.FileDownload, null); Spacer(Modifier.width(8.dp)); Text(tr("Export ZIP backup"))
                 }
-                OutlinedButton(onClick = { openBackup.launch(arrayOf("application/json", "text/plain", "*/*")) },
+                OutlinedButton(onClick = { openBackup.launch(arrayOf("application/zip", "application/json", "text/plain", "*/*")) },
                     modifier = Modifier.fillMaxWidth(), enabled = !busy) {
                     Icon(Icons.Rounded.FileUpload, null); Spacer(Modifier.width(8.dp)); Text(tr("Import backup / migrate"))
                 }
-                Text(tr("Imports Progress 1% v5 {progressiOne, progressiLocal}, standalone tracker exports, and native backups."),
+                Text(tr("Imports Progress 1% v5 {progressiOne, progressiLocal}, standalone tracker exports, native JSON backups, and streaming ZIP archives."),
                     style = MaterialTheme.typography.bodySmall, color = Mist)
             }
         }
@@ -205,8 +236,8 @@ fun SettingsScreen(store: LocalStore, onBack: () -> Unit, onReplayTutorial: () -
                 Eyebrow("NOTIFICATIONS")
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
-                        Text(tr("Tracker notifications"), style = MaterialTheme.typography.titleMedium)
-                        Text(tr("Local Android reminders when a tracker has a reminder time."),
+                        Text(tr("Tracker and task notifications"), style = MaterialTheme.typography.titleMedium)
+                        Text(tr("Local Android reminders for trackers and tasks with a scheduled time."),
                             color = Mist, style = MaterialTheme.typography.bodySmall)
                     }
                     Switch(checked = notificationsEnabled, onCheckedChange = {
@@ -261,9 +292,9 @@ fun SettingsScreen(store: LocalStore, onBack: () -> Unit, onReplayTutorial: () -
                         busy = true
                         try {
                             val result = withContext(Dispatchers.IO) {
-                                val contents = ctx.contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
-                                    ?: error("Cannot read file")
-                                store.importJson(contents)
+                                ctx.contentResolver.openInputStream(uri)?.use { stream ->
+                                    store.importBackupOrLegacy(stream)
+                                } ?: error("Cannot read file")
                             }
                             message = result
                         } catch (e: Exception) { message = "Import failed: ${e.message}" }

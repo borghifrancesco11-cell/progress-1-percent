@@ -17,9 +17,11 @@ import kotlinx.coroutines.launch
 fun WeatherCard(store: LocalStore) {
     val scope = rememberCoroutineScope()
     val rev = store.revision
-    val city = remember(rev) { store.setting("city", "Sesto San Giovanni, IT") }
-    val lat = remember(rev) { store.setting("latitude", "45.53449").toDoubleOrNull() ?: 45.53449 }
-    val lon = remember(rev) { store.setting("longitude", "9.23401").toDoubleOrNull() ?: 9.23401 }
+    val city = remember(rev) { store.setting("city").trim() }
+    val latitude = remember(rev) { store.setting("latitude").trim().toDoubleOrNull() }
+    val longitude = remember(rev) { store.setting("longitude").trim().toDoubleOrNull() }
+    val hasLocation = city.isNotBlank() && latitude != null && longitude != null &&
+        latitude in -90.0..90.0 && longitude in -180.0..180.0
     val weather = remember(rev) { WeatherService.saved(store) }
     var search by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
@@ -28,7 +30,7 @@ fun WeatherCard(store: LocalStore) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Eyebrow("WEATHER · OPTIONAL ONLINE", Mint)
-                Text(city, style = MaterialTheme.typography.titleMedium)
+                Text(city.ifBlank { "No city selected" }, style = MaterialTheme.typography.titleMedium)
                 if (weather != null) {
                     Text("${weather.temp.toInt()}°C · feels ${weather.feels.toInt()}°C",
                         style = MaterialTheme.typography.headlineMedium)
@@ -43,10 +45,18 @@ fun WeatherCard(store: LocalStore) {
             OutlinedButton(onClick = { search = true }, Modifier.weight(1f)) { Text("Set city") }
             Button(onClick = { scope.launch {
                 busy = true
-                try { WeatherService.cache(store, WeatherService.forecast(lat, lon)); error = "" }
+                try {
+                    val lat = latitude
+                    val lon = longitude
+                    if (lat == null || lon == null) {
+                        throw IllegalStateException("Select a city before refreshing the forecast")
+                    }
+                    WeatherService.cache(store, WeatherService.forecast(lat, lon))
+                    error = ""
+                }
                 catch (e: Exception) { error = "Offline / weather unavailable: ${e.message}" }
                 finally { busy = false }
-            } }, enabled = !busy, modifier = Modifier.weight(1f)) {
+            } }, enabled = !busy && hasLocation, modifier = Modifier.weight(1f)) {
                 Icon(Icons.Rounded.Refresh, null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(5.dp)); Text("Refresh")
             }

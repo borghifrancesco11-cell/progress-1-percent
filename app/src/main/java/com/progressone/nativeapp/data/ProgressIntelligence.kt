@@ -76,27 +76,36 @@ object DailyProgressEngine {
         sleepTargetHours: Double = 8.0,
     ): ProgressBreakdown {
         val activeGoals = snapshot.trackers.filterNot { it.optBoolean("archived") }
+        val archivedGoals = snapshot.trackers.filter { it.optBoolean("archived") }
         val scores = linkedMapOf<String, Int>()
         var actions = 0
 
-        if ("track" in enabledModules && activeGoals.isNotEmpty()) {
-            val (done, total) = Metrics.daySummary(activeGoals, snapshot.logs, date)
-            if (total > 0) {
-                scores["track"] = ProgressScore.dayScore(activeGoals, snapshot.logs, date)
-                actions += done
+        if ("track" in enabledModules && snapshot.trackers.isNotEmpty()) {
+            val (done, _) = Metrics.daySummary(activeGoals, snapshot.logs, date)
+            // Archiving changes today's denominator, but it must not erase an activity that was
+            // already recorded. Evaluate a copy with the archive flag removed: the persisted
+            // tracker is never mutated as a side effect of calculating history.
+            val archivedCompletedGoals = archivedGoals.mapNotNull { tracker ->
+                val historicalCopy = org.json.JSONObject(tracker.toString()).put("archived", false)
+                if (Metrics.due(historicalCopy, date) &&
+                    Metrics.completion(historicalCopy, snapshot.logs, date)
+                ) historicalCopy else null
             }
+            val scoredGoals = activeGoals + archivedCompletedGoals
+            if (scoredGoals.isNotEmpty()) {
+                scores["track"] = ProgressScore.dayScore(scoredGoals, snapshot.logs, date)
+            }
+            actions += done + archivedCompletedGoals.size
         }
 
         if ("tasks" in enabledModules) {
-            val due = snapshot.tasks.filter { it.optString("due") == date }
-            // A task can have more than one completion date. Never reduce its history to
-            // the latest completedAt value when calculating a historical day.
+            val due = snapshot.tasks.filter { TaskHistory.dueDate(it)?.toString() == date }
             val completed = snapshot.tasks.count { task ->
-                TaskHistory.completedDates(task).contains(date)
+                date in TaskHistory.completedDates(task)
             }
             if (due.isNotEmpty()) {
                 val doneDue = due.count { task ->
-                    TaskHistory.completedDates(task).contains(date)
+                    date in TaskHistory.completedDates(task)
                 }
                 scores["tasks"] = (doneDue * 100.0 / due.size).roundToInt()
             } else if (completed > 0) {
@@ -117,9 +126,12 @@ object DailyProgressEngine {
             }
         }
 
-        val sleepEntry = snapshot.sleeps.firstOrNull { it.optString("date") == date }
+        val sleepEnabled = "sleep" in enabledModules
+        val sleepEntry = if (sleepEnabled) {
+            snapshot.sleeps.firstOrNull { it.optString("date") == date }
+        } else null
         val sleepScore = sleepEntry?.let { SleepUtils.score(it, sleepTargetHours) }
-        if ("sleep" in enabledModules && sleepEntry != null) {
+        if (sleepEnabled && sleepEntry != null) {
             scores["sleep"] = sleepScore ?: 0
             actions += 1
         }
@@ -127,6 +139,8 @@ object DailyProgressEngine {
         if ("gym" in enabledModules) {
             val workouts = snapshot.gymWorkouts.filter { it.optString("date") == date }
             if (workouts.isNotEmpty()) {
+                // Disabled Sleep is not an input to Gym. Only an enabled, recorded sleep entry may
+                // adjust the session score.
                 val recoveryFactor = sleepScore?.let { 0.70f + 0.30f * (it / 100f) } ?: 1f
                 scores["gym"] = (100f * recoveryFactor).roundToInt().coerceIn(0, 100)
                 actions += workouts.size
@@ -134,20 +148,32 @@ object DailyProgressEngine {
         }
 
         if ("challenges" in enabledModules) {
-            // Only unfinished challenges scheduled for this date belong in the denominator.
-            // A future, expired or finished challenge must not dilute today's score.
+            // Only currently eligible challenges belong in today's denominator. Completions from
+            // challenges that have since ended remain historical activity and must not disappear.
             val eligibleChallenges = snapshot.challenges.filter { challenge ->
                 challenge.optString("id").isNotBlank() &&
                     challengeIsScheduledOn(challenge, date)
             }
-            val challengeIds = eligibleChallenges.map { it.optString("id") }.toSet()
-            if (eligibleChallenges.isNotEmpty()) {
-                val doneToday = snapshot.logs.count {
-                    it.ownerId in challengeIds && it.date == date && it.status == "done"
-                }
-                scores["challenges"] = (doneToday * 100.0 / eligibleChallenges.size).roundToInt()
-                actions += doneToday
+            val eligibleIds = eligibleChallenges.map { it.optString("id") }.toSet()
+            val challengesById = snapshot.challenges
+                .filter { it.optString("id").isNotBlank() }
+                .associateBy { it.optString("id") }
+            val doneToday = snapshot.logs.count {
+                it.ownerId in eligibleIds && it.date == date && it.status == "done"
             }
+            val endedDone = snapshot.logs.count { entry ->
+                entry.ownerId !in eligibleIds &&
+                    entry.date == date && entry.status == "done" &&
+                    challengesById[entry.ownerId]?.let { challenge ->
+                        challengeDateIsWithinWindow(challenge, date)
+                    } == true
+            }
+            if (eligibleChallenges.isNotEmpty()) {
+                scores["challenges"] = (doneToday * 100.0 / eligibleChallenges.size).roundToInt()
+            } else if (endedDone > 0) {
+                scores["challenges"] = 100
+            }
+            actions += doneToday + endedDone
         }
 
         if ("social" in enabledModules && socialScore != null) {
@@ -173,17 +199,17 @@ object DailyProgressEngine {
         }
 
         val overdue = if ("tasks" in enabledModules) {
-            snapshot.tasks.count { task ->
-                !task.optBoolean("done") && runCatching { task.optString("due") < date }.getOrDefault(false)
-            }
+            snapshot.tasks.count { task -> TaskHistory.isOverdue(task, date) }
         } else 0
         val pending = if ("tasks" in enabledModules) {
-            snapshot.tasks.count { it.optString("due") == date && !it.optBoolean("done") }
+            snapshot.tasks.count {
+                TaskHistory.dueDate(it)?.toString() == date && !it.optBoolean("done")
+            }
         } else 0
         val priorities = buildMap {
             if (overdue > 0) put("tasks", 0.12f)
             else if (pending > 0) put("tasks", 0.07f)
-            if ((sleepScore ?: 100) < 55) put("sleep", 0.06f)
+            if (sleepEnabled && sleepScore != null && sleepScore < 55) put("sleep", 0.06f)
         }
         val result = SmartScoreEngine.calculate(scores, enabledModules, priorities)
         return result.copy(completedActions = actions)
@@ -254,8 +280,118 @@ object DailyProgressEngine {
             .size
 }
 
+/** Background-computed Home inputs shared by Compose and JVM tests. */
+data class HomeProgressModel(
+    val enabledModules: Set<String>,
+    val socialScore: Int?,
+    val sleepTargetHours: Double,
+    val dailyBreakdown: ProgressBreakdown,
+    val streak: Int,
+)
+
+object HomeProgressEngine {
+    fun calculate(
+        snapshot: AppSnapshot,
+        enabledModules: Set<String>,
+        socialScore: Int? = null,
+        date: String = LocalDate.now().toString(),
+        today: LocalDate = LocalDate.now(),
+        sleepTargetHours: Double = 8.0,
+        lookbackDays: Int = 365,
+    ): HomeProgressModel = HomeProgressModel(
+        enabledModules = enabledModules.toSet(),
+        socialScore = socialScore,
+        sleepTargetHours = sleepTargetHours,
+        dailyBreakdown = DailyProgressEngine.today(
+            snapshot = snapshot,
+            enabledModules = enabledModules,
+            socialScore = socialScore,
+            date = date,
+            sleepTargetHours = sleepTargetHours,
+        ),
+        streak = DailyProgressEngine.streak(
+            snapshot = snapshot,
+            enabledModules = enabledModules,
+            today = today,
+            lookbackDays = lookbackDays.coerceAtLeast(0),
+            sleepTargetHours = sleepTargetHours,
+        ),
+    )
+}
+
+/**
+ * Complete, deterministic input/output for the Calendar screen.
+ *
+ * The model is intentionally free of Compose and Android APIs so a UI can calculate it on a
+ * background dispatcher and tests can verify the same result without a device.
+ */
+data class CalendarProgressModel(
+    val year: Int,
+    val selectedDate: String,
+    val enabledModules: Set<String>,
+    val sleepTargetHours: Double,
+    val history: Map<String, ProgressBreakdown>,
+    val selectedProgress: ProgressBreakdown,
+    val currentStreak: Int,
+    val activeDays: Int,
+    val activeMonths: Int,
+    val averageScore: Int,
+)
+
+object CalendarProgressEngine {
+    fun calculate(
+        snapshot: AppSnapshot,
+        enabledModules: Set<String>,
+        year: Int,
+        selectedDate: LocalDate,
+        today: LocalDate = LocalDate.now(),
+        sleepTargetHours: Double = 8.0,
+        lookbackDays: Int = 730,
+    ): CalendarProgressModel {
+        val effectiveSleepTarget = sleepTargetHours.takeIf { it.isFinite() && it > 0.0 } ?: 8.0
+        val history = DailyProgressEngine.year(
+            snapshot = snapshot,
+            enabledModules = enabledModules,
+            year = year,
+            sleepTargetHours = effectiveSleepTarget,
+        )
+        val selectedProgress = DailyProgressEngine.forDate(
+            snapshot = snapshot,
+            enabledModules = enabledModules,
+            date = selectedDate.toString(),
+            sleepTargetHours = effectiveSleepTarget,
+        )
+        val currentStreak = DailyProgressEngine.streak(
+            snapshot = snapshot,
+            enabledModules = enabledModules,
+            today = today,
+            lookbackDays = lookbackDays.coerceAtLeast(0),
+            sleepTargetHours = effectiveSleepTarget,
+        )
+        val activeScores = history.values
+            .filter { it.completedActions > 0 }
+            .map { it.score }
+        return CalendarProgressModel(
+            year = year,
+            selectedDate = selectedDate.toString(),
+            enabledModules = enabledModules.toSet(),
+            sleepTargetHours = effectiveSleepTarget,
+            history = history,
+            selectedProgress = selectedProgress,
+            currentStreak = currentStreak,
+            activeDays = DailyProgressEngine.activeDays(year, history),
+            activeMonths = DailyProgressEngine.monthsWithActivity(year, history),
+            averageScore = if (activeScores.isEmpty()) 0 else activeScores.average().roundToInt(),
+        )
+    }
+}
+
 private fun challengeIsScheduledOn(challenge: org.json.JSONObject, date: String): Boolean {
     if (challenge.optBoolean("finished")) return false
+    return challengeDateIsWithinWindow(challenge, date)
+}
+
+private fun challengeDateIsWithinWindow(challenge: org.json.JSONObject, date: String): Boolean {
     val start = challenge.optString("startDate").trim()
     val end = challenge.optString("endDate").trim()
     if (start.isNotEmpty() && date < start) return false
@@ -310,12 +446,12 @@ object LocalCoachEngine {
         date: String = LocalDate.now().toString(),
     ): CoachInsight {
         val overdue = if ("tasks" in enabledModules) {
-            snapshot.tasks.count { task ->
-                !task.optBoolean("done") && runCatching { task.optString("due") < date }.getOrDefault(false)
-            }
+            snapshot.tasks.count { task -> TaskHistory.isOverdue(task, date) }
         } else 0
         val pending = if ("tasks" in enabledModules) {
-            snapshot.tasks.count { it.optString("due") == date && !it.optBoolean("done") }
+            snapshot.tasks.count {
+                TaskHistory.dueDate(it)?.toString() == date && !it.optBoolean("done")
+            }
         } else 0
         val sleep = if ("sleep" in enabledModules) {
             snapshot.sleeps.firstOrNull { it.optString("date") == date }
@@ -421,8 +557,8 @@ object LocalCoachEngine {
         val protein = known.sumOf { it.optDouble("protein", 0.0) }
         val recovery = if ("sleep" in enabledModules) {
             snapshot.sleeps.firstOrNull { it.optString("date") == date }
-                ?.let { SleepUtils.score(it, sleepTargetHours) } ?: 100
-        } else 100
+                ?.let { SleepUtils.score(it, sleepTargetHours) }
+        } else null
 
         return when {
             known.isEmpty() -> CoachInsight(
@@ -430,15 +566,15 @@ object LocalCoachEngine {
                 title = "Log your first meal",
                 message = "Take a photo: dish recognition and macro estimation happen entirely on your phone.",
                 actionLabel = "Scan food",
-                actionRoute = coachRoute(enabledModules, "food"),
+                actionRoute = "food",
                 tone = CoachTone.ACTION,
             )
-            recovery < 55 -> CoachInsight(
+            recovery != null && recovery < 55 -> CoachInsight(
                 eyebrow = "RECOVERY + NUTRITION",
                 title = "Avoid extreme restriction today",
                 message = "With low recovery, focus on energy and protein. The Coach adapts its advice to your recorded sleep.",
                 actionLabel = "Open recovery",
-                actionRoute = coachRoute(enabledModules, "sleep", listOf("track", "tasks")),
+                actionRoute = "sleep",
                 tone = CoachTone.RECOVERY,
             )
             targetProtein > 0 && protein < targetProtein * 0.55 -> CoachInsight(
@@ -446,7 +582,7 @@ object LocalCoachEngine {
                 title = "Add a protein source",
                 message = "You recorded ${protein.roundToInt()} g of protein against a ${targetProtein.roundToInt()} g target. Your next meal can close the gap.",
                 actionLabel = "Add a meal",
-                actionRoute = coachRoute(enabledModules, "food"),
+                actionRoute = "food",
                 tone = CoachTone.ACTION,
             )
             targetKcal > 0 && kcal > targetKcal * 1.15 -> CoachInsight(
@@ -454,7 +590,7 @@ object LocalCoachEngine {
                 title = "Move energy to your next meal",
                 message = "Recorded calories are above target. Choose a lighter next meal without extreme restriction.",
                 actionLabel = "Open diary",
-                actionRoute = coachRoute(enabledModules, "food"),
+                actionRoute = "food",
                 tone = CoachTone.ACTION,
             )
             else -> CoachInsight(
@@ -462,7 +598,7 @@ object LocalCoachEngine {
                 title = "Your diary is balanced",
                 message = "Calories and protein are in line with your targets. Keep the portion simple and log upcoming meals too.",
                 actionLabel = "Scan the next meal",
-                actionRoute = coachRoute(enabledModules, "food"),
+                actionRoute = "food",
                 tone = CoachTone.POSITIVE,
             )
         }
@@ -486,42 +622,54 @@ object LocalCoachEngine {
         val sleep = if ("sleep" in enabledModules) {
             snapshot.sleeps.firstOrNull { it.optString("date") == date }
         } else null
-        val sleepScore = sleep?.let { SleepUtils.score(it, sleepTargetHours) } ?: 100
+        val sleepScore = sleep?.let { SleepUtils.score(it, sleepTargetHours) }
         val trainedToday = snapshot.gymWorkouts.any { it.optString("date") == date }
         val previousDate = LocalDate.parse(date).minusDays(1).toString()
         val trainedYesterday = snapshot.gymWorkouts.any { it.optString("date") == previousDate }
         return when {
-            sleepScore < 55 -> CoachInsight(
+            sleepScore != null && sleepScore < 55 -> CoachInsight(
                 eyebrow = "LOW RECOVERY",
                 title = "Choose light load or mobility",
                 message = "Your recorded sleep indicates low recovery. Avoid a max effort and prioritize technique and control.",
                 actionLabel = "Log sleep",
-                actionRoute = coachRoute(enabledModules, "sleep", listOf("gym")),
+                actionRoute = "sleep",
                 tone = CoachTone.RECOVERY,
             )
             trainedToday -> CoachInsight(
                 eyebrow = "SESSION COMPLETE",
                 title = "Protect your recovery",
-                message = "You already trained today. A walk or mobility work is more useful than another heavy session.",
-                actionLabel = "Open recovery",
-                actionRoute = coachRoute(enabledModules, "sleep", listOf("gym")),
+                message = if (sleep != null) {
+                    "You already trained today. A walk or mobility work is more useful than another heavy session."
+                } else {
+                    "You already trained today. Review your session or add mobility work instead of another heavy session."
+                },
+                actionLabel = if (sleep != null) "Open recovery" else "View history",
+                actionRoute = if (sleep != null) "sleep" else "gym",
                 tone = CoachTone.POSITIVE,
             )
             trainedYesterday -> CoachInsight(
                 eyebrow = "ACTIVE RECOVERY",
                 title = "After yesterday, choose quality over volume",
                 message = "You trained yesterday. Rest or mobility is sensible; a moderate load is fine only if you feel ready.",
-                actionLabel = "Open sleep",
-                actionRoute = coachRoute(enabledModules, "sleep", listOf("gym")),
+                actionLabel = if (sleep != null) "Open sleep" else "Open gym",
+                actionRoute = if (sleep != null) "sleep" else "gym",
                 tone = CoachTone.RECOVERY,
+            )
+            sleepScore != null -> CoachInsight(
+                eyebrow = "TRAINING COACH",
+                title = "Recovery is balanced",
+                message = "Your recorded sleep supports the session. Follow the planned workout without adding unnecessary intensity.",
+                actionLabel = "View templates",
+                actionRoute = "gym",
+                tone = CoachTone.POSITIVE,
             )
             else -> CoachInsight(
                 eyebrow = "TRAINING COACH",
-                title = "Recovery is balanced",
-                message = "Your sleep supports the session. Follow the planned workout without adding unnecessary intensity.",
+                title = "Your training plan is ready",
+                message = "No sleep entry is available for today, so this plan does not use recovery data. Follow the planned workout without adding unnecessary intensity.",
                 actionLabel = "View templates",
-                actionRoute = coachRoute(enabledModules, "gym"),
-                tone = CoachTone.POSITIVE,
+                actionRoute = "gym",
+                tone = CoachTone.NEUTRAL,
             )
         }
     }

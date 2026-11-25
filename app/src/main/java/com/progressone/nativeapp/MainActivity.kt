@@ -1,5 +1,6 @@
 package com.progressone.nativeapp
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
@@ -20,12 +21,16 @@ import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.progressone.nativeapp.data.LocalStore
 import com.progressone.nativeapp.data.moduleEnabled
+import com.progressone.nativeapp.reminders.ReminderDestination
+import com.progressone.nativeapp.reminders.ReminderDestinationType
 import com.progressone.nativeapp.reminders.ReminderScheduler
 import com.progressone.nativeapp.ui.*
 import kotlinx.coroutines.Dispatchers
@@ -33,16 +38,35 @@ import kotlinx.coroutines.withContext
 
 /** One home, no pager, no bottom bar, no background compositing of other pages. */
 class MainActivity : ComponentActivity() {
+    private var requestedDestination by mutableStateOf<ReminderDestination?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        captureDestination(intent)
         enableEdgeToEdge()
         setContent {
             val store = remember { LocalStore(applicationContext) }
             DisposableEffect(store) { onDispose { store.close() } }
             val revision = store.revision
             val theme = remember(revision) { store.setting("ui_theme", "oled") }
-            ProgressTheme(theme = theme, language = "en") { NativeRoot(store) }
+            ProgressTheme(theme = theme, language = "en") {
+                NativeRoot(
+                    store = store,
+                    requestedDestination = requestedDestination,
+                    onDestinationConsumed = { requestedDestination = null },
+                )
+            }
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        captureDestination(intent)
+    }
+
+    private fun captureDestination(intent: Intent?) {
+        requestedDestination = ReminderScheduler.destinationFromIntent(intent)
     }
 }
 
@@ -55,7 +79,11 @@ private val sectionTitles = mapOf(
 )
 
 @Composable
-fun NativeRoot(store: LocalStore) {
+fun NativeRoot(
+    store: LocalStore,
+    requestedDestination: ReminderDestination? = null,
+    onDestinationConsumed: () -> Unit = {},
+) {
     val revision = store.revision
     // SQLite reading happens off the UI thread, preserving the last snapshot during refresh.
     val state = produceState<AppSnapshot?>(initialValue = null, store, revision) {
@@ -65,14 +93,28 @@ fun NativeRoot(store: LocalStore) {
     val reduceMotion = remember(revision) { store.setting("reduce_motion", "false") == "true" }
     val enabled: (String) -> Boolean = { store.moduleEnabled(it) }
     val coreRoutes = setOf("track", "settings", "summary", "challenges", "tasks", "calendar")
-    var page by remember { mutableStateOf("") }
+    var page by rememberSaveable { mutableStateOf("") }
+    var requestedTaskId by rememberSaveable { mutableStateOf<String?>(null) }
     val openDestination: (String) -> Unit = { destination ->
         if (destination in coreRoutes || enabled(destination)) page = destination
     }
     val context = androidx.compose.ui.platform.LocalContext.current
-    LaunchedEffect(Unit) {
-        if (store.setting("onboarding_complete", "false") != "true") page = "onboarding"
-        else ReminderScheduler.deliverDue(context, store)
+    val onboardingComplete = remember(revision) {
+        store.setting("onboarding_complete", "false") == "true"
+    }
+    LaunchedEffect(onboardingComplete, requestedDestination) {
+        val destination = requestedDestination
+        if (!onboardingComplete) {
+            page = "onboarding"
+        } else if (destination != null) {
+            page = destination.route
+            if (destination.type == ReminderDestinationType.TASK) {
+                requestedTaskId = destination.id
+            }
+            onDestinationConsumed()
+        } else {
+            ReminderScheduler.deliverDue(context, store)
+        }
     }
     LaunchedEffect(revision) {
         withContext(Dispatchers.IO) { ReminderScheduler.reschedule(context, store) }
@@ -141,11 +183,16 @@ fun NativeRoot(store: LocalStore) {
                     "school" -> SchoolScreen(store, snapshot)
                     "money" -> FinanceScreen(store, snapshot)
                     "challenges" -> ChallengesScreen(store, snapshot, onBack = { page = "" })
-                    "tasks" -> TasksScreen(store, snapshot, onBack = { page = "" })
-                    "calendar" -> CalendarScreen(store, snapshot, onBack = { page = "" })
+                    "tasks" -> TasksScreen(
+                        store = store,
+                        snapshot = snapshot,
+                        focusTaskId = requestedTaskId,
+                        onTaskFocusHandled = { requestedTaskId = null },
+                    )
+                    "calendar" -> CalendarScreen(store, snapshot)
                     "gym" -> GymScreen(store, snapshot, onBack = { page = "" }, onOpen = openDestination)
-                    "sleep" -> SleepScreen(store, snapshot, onBack = { page = "" })
-                    "social" -> SocialScreen(store, onBack = { page = "" })
+                    "sleep" -> SleepScreen(store, snapshot)
+                    "social" -> SocialScreen(store)
                     "summary" -> SummaryScreen(store, snapshot,
                         showSchool = enabled("school"), showWardrobe = enabled("wardrobe"),
                         showMoney = enabled("money"), showChallenges = enabled("challenges"),

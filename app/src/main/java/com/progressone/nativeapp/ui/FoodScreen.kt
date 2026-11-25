@@ -2,6 +2,7 @@ package com.progressone.nativeapp.ui
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -30,8 +31,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
+import com.progressone.nativeapp.data.InputValidation
 import com.progressone.nativeapp.data.LocalStore
 import com.progressone.nativeapp.data.NutritionMath
+import com.progressone.nativeapp.data.FoodProductLookup
+import com.progressone.nativeapp.data.ProductNutrition
 import com.progressone.nativeapp.data.NutritionTotals
 import com.progressone.nativeapp.data.LocalCoachEngine
 import com.progressone.nativeapp.data.enabledModuleIds
@@ -41,7 +45,7 @@ import com.progressone.nativeapp.foodvision.FoodDishInfo
 import com.progressone.nativeapp.foodvision.MacroEstimate
 import com.progressone.nativeapp.foodvision.MacroModel
 import com.progressone.nativeapp.foodvision.NutritionalScoreResult
-import com.progressone.nativeapp.media.ImageProcessor
+import androidx.exifinterface.media.ExifInterface
 import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
@@ -90,6 +94,7 @@ fun FoodScreen(
     var name by rememberSaveable { mutableStateOf("") }
     var group by rememberSaveable { mutableStateOf("Lunch") }
     var photo by rememberSaveable { mutableStateOf("") }
+    var unsavedPhotos by rememberSaveable { mutableStateOf(emptyList<String>()) }
     var notes by rememberSaveable { mutableStateOf("") }
     var portion by rememberSaveable { mutableStateOf("") }
     var autoSavePending by rememberSaveable { mutableStateOf(false) }
@@ -199,6 +204,8 @@ fun FoodScreen(
                     "macroSource" to (ai?.source ?: "FoodDatabase")
                 )
                 store.put("food", item)
+                unsavedPhotos.forEach { store.cleanupUnreferencedPhoto(it) }
+                unsavedPhotos = emptyList()
                 autoSavePending = false
                 autoSaveDish = null
                 autoSaveToast = "Saved: ${dish.displayName} · ${totals.kcal.roundToInt()} kcal · ${scoreRes.grade}"
@@ -218,6 +225,7 @@ fun FoodScreen(
     var barcodeStatus by remember { mutableStateOf("") }
     var barcodeBusy by remember { mutableStateOf(false) }
     var fromBarcode by remember { mutableStateOf(false) }
+    var barcodeNutrition by remember { mutableStateOf<ProductNutrition?>(null) }
 
     fun runMacroAi(dish: FoodDishInfo?, label: String = name) {
         if (label.isBlank() || aiMacroBusy) return
@@ -267,7 +275,11 @@ fun FoodScreen(
                 } ?: error("Could not load photo for AI analysis")
 
                 val predictions = withContext(Dispatchers.Default) {
-                    classifier.classify(bitmap, topK = 4)
+                    try {
+                        classifier.classify(bitmap, topK = 4)
+                    } finally {
+                        bitmap.recycle()
+                    }
                 }
                 aiPredictions = predictions
                 if (predictions.isNotEmpty()) {
@@ -305,12 +317,64 @@ fun FoodScreen(
                     aiStatusMessage = "No recognized food item detected in picture."
                     portion = estimatedPortionGrams.roundToInt().toString()
                 }
+            } catch (e: OutOfMemoryError) {
+                aiStatusMessage = "The photo or AI model needs more memory. Close other apps and retry with a smaller photo."
+                aiModelState = "failed"
+                aiAvailable = false
             } catch (e: Exception) {
                 aiStatusMessage = "AI analysis error: ${e.localizedMessage ?: "Processing error"}"
             } finally {
                 aiRunning = false
             }
         }
+    }
+
+    fun restoreBarcodeNutrition(record: JSONObject): ProductNutrition? {
+        fun finitePer100(key: String): Double? {
+            if (!record.has(key) || record.isNull(key)) return null
+            val value = record.optDouble(key, Double.NaN)
+            return value.takeIf { it.isFinite() && it >= 0.0 && it <= 100_000.0 }
+        }
+        val kcal = finitePer100("per100kcal")
+        val protein = finitePer100("per100protein")
+        val carbs = finitePer100("per100carbs")
+        val fat = finitePer100("per100fat")
+        if (kcal != null && protein != null && carbs != null && fat != null) {
+            return ProductNutrition(
+                record.optString("name").ifBlank { "Scanned food" },
+                record.optString("barcode"),
+                kcal,
+                protein,
+                carbs,
+                fat,
+            )
+        }
+
+        // Older records may only contain totals. Reconstruct the per-100g
+        // values from the saved portion instead of silently replacing them
+        // with zeroes when the meal is edited.
+        val grams = record.optString("portion").toDoubleOrNull()
+        if (grams != null && grams > 0.0 && record.optBoolean("nutritionKnown")) {
+            fun total(key: String): Double? {
+                val value = record.optDouble(key, Double.NaN)
+                return value.takeIf { it.isFinite() && it >= 0.0 }
+            }
+            val totalKcal = total("kcal")
+            val totalProtein = total("protein")
+            val totalCarbs = total("carbs")
+            val totalFat = total("fat")
+            if (totalKcal != null && totalProtein != null && totalCarbs != null && totalFat != null) {
+                return ProductNutrition(
+                    record.optString("name").ifBlank { "Scanned food" },
+                    record.optString("barcode"),
+                    totalKcal / grams * 100.0,
+                    totalProtein / grams * 100.0,
+                    totalCarbs / grams * 100.0,
+                    totalFat / grams * 100.0,
+                )
+            }
+        }
+        return null
     }
 
     fun loadEditor(record: JSONObject? = null) {
@@ -338,7 +402,12 @@ fun FoodScreen(
         recognizedDishId = record?.optString("dishId").orEmpty()
         barcode = record?.optString("barcode").orEmpty()
         fromBarcode = record?.optString("nutritionSource") == "openfoodfacts"
-        barcodeStatus = ""
+        barcodeNutrition = if (fromBarcode && record != null) {
+            restoreBarcodeNutrition(record)
+        } else null
+        barcodeStatus = if (barcodeNutrition == null && fromBarcode) {
+            "The saved product nutrition is unavailable. Look up the barcode again before saving."
+        } else ""
         deleteConfirm = ""
         showEditor = true
 
@@ -347,37 +416,79 @@ fun FoodScreen(
         }
     }
 
-    suspend fun saveBitmap(bitmap: Bitmap) = withContext(Dispatchers.IO) {
+    fun markUnsavedPhoto(name: String) {
+        if (name.isNotBlank() && name !in unsavedPhotos) unsavedPhotos = unsavedPhotos + name
+    }
+
+    /** Remove editor-only photos which were cancelled or superseded. */
+    fun cleanupUnsavedPhotos(keep: String? = null) {
+        unsavedPhotos.forEach { name ->
+            if (name != keep) store.cleanupUnreferencedPhoto(name)
+        }
+        unsavedPhotos = if (keep == null) emptyList() else unsavedPhotos.filter { it == keep }
+    }
+
+    /** Close the editor and remove newly captured photos which were never persisted. */
+    fun dismissEditor() {
+        showEditor = false
+        cleanupUnsavedPhotos()
+    }
+
+    suspend fun saveBitmap(bitmap: Bitmap): String = withContext(Dispatchers.IO) {
         val outputName = "food_${UUID.randomUUID()}.jpg"
-        val file = store.photoFile(outputName) ?: error("Invalid food photo")
-        file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.JPEG, 85, it) }
-        outputName
+        store.withMediaLock {
+            val file = store.photoFile(outputName) ?: error("Invalid food photo")
+            val temporary = File(store.photoDirectory, ".$outputName.${UUID.randomUUID()}.tmp")
+            try {
+                temporary.outputStream().use { output ->
+                    check(bitmap.compress(Bitmap.CompressFormat.JPEG, 85, output)) {
+                        "Unable to encode the selected photo"
+                    }
+                    output.fd.sync()
+                }
+                check(temporary.renameTo(file)) { "Unable to save the selected photo" }
+                outputName
+            } finally {
+                temporary.delete()
+            }
+        }
     }
 
     val gallery = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
         if (uri != null) {
             showEditor = true
             scope.launch {
+                var bitmap: Bitmap? = null
                 try {
-                    val bitmap = ImageProcessor.decode(context, uri)
+                    bitmap = withContext(Dispatchers.IO) { decodeFoodSource(context, uri) }
+                        ?: error("The selected image could not be decoded")
                     val savedName = saveBitmap(bitmap)
+                    markUnsavedPhoto(savedName)
                     photo = savedName
                     // runAiRecognition owns the busy flag, otherwise the scan would be skipped.
                     runAiRecognition(savedName)
+                } catch (e: OutOfMemoryError) {
+                    aiStatusMessage = "This photo is too large to process safely. Choose a smaller image."
                 } catch (e: Exception) {
                     aiStatusMessage = "Unable to read photo: ${e.localizedMessage}"
+                } finally {
+                    bitmap?.recycle()
                 }
             }
         }
     }
 
     val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
-        if (ok && pendingCameraName.isNotBlank()) {
-            photo = pendingCameraName
+        val capturedName = pendingCameraName
+        val capturedFile = store.photoFile(capturedName)
+        if (ok && capturedName.isNotBlank() && capturedFile != null && capturedFile.isFile && capturedFile.length() > 0L) {
+            markUnsavedPhoto(capturedName)
+            photo = capturedName
             showEditor = true
-            runAiRecognition(pendingCameraName)
+            runAiRecognition(capturedName)
         } else {
-            store.photoFile(pendingCameraName)?.delete()
+            store.cleanupUnreferencedPhoto(capturedName)
+            if (ok) aiStatusMessage = "The camera did not return a readable photo."
         }
         pendingCameraName = ""
     }
@@ -392,31 +503,39 @@ fun FoodScreen(
         }.onFailure { aiStatusMessage = "Camera unavailable: ${it.localizedMessage}" }
     }
 
+    suspend fun loadBarcodeProduct(code: String) {
+        barcodeBusy = true
+        barcodeStatus = ""
+        try {
+            val product = FoodProductLookup.byBarcode(code)
+            name = product.name
+            barcode = product.barcode
+            barcodeNutrition = product
+            fromBarcode = true
+            aiMacros = null
+            recognizedDishId = ""
+            aiPredictions = emptyList()
+            barcodeStatus = "Product loaded: ${product.name}"
+            if (portion.isBlank()) portion = estimatedPortionGrams.roundToInt().toString()
+        } catch (e: Exception) {
+            barcodeStatus = e.message ?: "Product unavailable."
+            fromBarcode = false
+            barcodeNutrition = null
+        } finally { barcodeBusy = false }
+    }
+
     fun lookupBarcode(code: String = barcode) {
         if (barcodeBusy) return
-        scope.launch {
-            barcodeBusy = true
-            barcodeStatus = ""
-            try {
-                val product = com.progressone.nativeapp.data.FoodProductLookup.byBarcode(code)
-                name = product.name
-                barcode = product.barcode
-                fromBarcode = true
-                barcodeStatus = "Product loaded: ${product.name}"
-                if (portion.isBlank()) portion = estimatedPortionGrams.roundToInt().toString()
-            } catch (e: Exception) {
-                barcodeStatus = e.message ?: "Product unavailable."
-                fromBarcode = false
-            } finally { barcodeBusy = false }
-        }
+        scope.launch { loadBarcodeProduct(code) }
     }
 
     val barcodeCamera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { ok ->
         val fileName = barcodeCameraName
         if (ok && fileName.isNotBlank()) scope.launch {
             barcodeBusy = true
+            var bitmap: Bitmap? = null
             try {
-                val bitmap = withContext(Dispatchers.IO) {
+                bitmap = withContext(Dispatchers.IO) {
                     decodeFoodPhoto(store.photoFile(fileName), 2200)
                 } ?: error("Unable to read barcode image")
                 val options = BarcodeScannerOptions.Builder().setBarcodeFormats(
@@ -427,20 +546,26 @@ fun FoodScreen(
                 val matches = try {
                     scanner.process(InputImage.fromBitmap(bitmap, 0)).await()
                 } finally { scanner.close() }
-                val code = matches.mapNotNull { it.rawValue }
-                    .firstOrNull { com.progressone.nativeapp.data.FoodProductLookup.validBarcode(it) }
-                    ?: error("No readable barcode found in photo.")
-                barcode = code
-                lookupBarcode(code)
+                val match = matches.firstNotNullOfOrNull { candidate ->
+                    val raw = candidate.rawValue ?: return@firstNotNullOfOrNull null
+                    val upcE = candidate.format == Barcode.FORMAT_UPC_E
+                    if (!FoodProductLookup.validBarcode(raw, upcE)) null
+                    else FoodProductLookup.canonicalBarcode(raw, upcE) to upcE
+                } ?: error("No readable barcode found in photo.")
+                barcode = match.first
+                loadBarcodeProduct(match.first)
+            } catch (e: OutOfMemoryError) {
+                barcodeStatus = "The barcode photo needs too much memory. Close other apps and retry."
             } catch (e: Exception) {
                 barcodeStatus = e.localizedMessage ?: "Barcode not recognized"
             } finally {
+                bitmap?.recycle()
                 barcodeBusy = false
-                withContext(Dispatchers.IO) { store.photoFile(fileName)?.delete() }
+                withContext(Dispatchers.IO) { store.cleanupUnreferencedPhoto(fileName) }
                 barcodeCameraName = ""
             }
         } else {
-            store.photoFile(fileName)?.delete()
+            store.cleanupUnreferencedPhoto(fileName)
             barcodeCameraName = ""
         }
     }
@@ -518,6 +643,13 @@ fun FoodScreen(
         item {
             FrostCard(Modifier.fillMaxWidth(), highlighted = true) {
                 FormField("Date (YYYY-MM-DD)", date, { date = it.take(10) })
+                if (!InputValidation.isValidDate(date)) {
+                    Text(
+                        "Enter a real date between ${InputValidation.MIN_VALID_YEAR} and ${InputValidation.MAX_VALID_YEAR}.",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {
@@ -688,17 +820,31 @@ fun FoodScreen(
     if (showEditor) {
         val dish = FoodDatabase.getDish(recognizedDishId)
         val ai = aiMacros
-        val per100kcal = if (ai != null && ai.portionGrams > 0) ai.calories / ai.portionGrams * 100.0
-            else dish?.kcalPer100g ?: 0.0
-        val per100protein = if (ai != null && ai.portionGrams > 0) ai.protein / ai.portionGrams * 100.0
-            else dish?.proteinPer100g ?: 0.0
-        val per100carbs = if (ai != null && ai.portionGrams > 0) ai.carbs / ai.portionGrams * 100.0
-            else dish?.carbsPer100g ?: 0.0
-        val per100fat = if (ai != null && ai.portionGrams > 0) ai.fat / ai.portionGrams * 100.0
-            else dish?.fatPer100g ?: 0.0
+        val barcodeValues = barcodeNutrition
+        val barcodeNutritionMissing = fromBarcode && barcodeValues == null
+        val per100kcal = when {
+            barcodeValues != null -> barcodeValues.kcal
+            ai != null && ai.portionGrams > 0 -> ai.calories / ai.portionGrams * 100.0
+            else -> dish?.kcalPer100g ?: 0.0
+        }
+        val per100protein = when {
+            barcodeValues != null -> barcodeValues.protein
+            ai != null && ai.portionGrams > 0 -> ai.protein / ai.portionGrams * 100.0
+            else -> dish?.proteinPer100g ?: 0.0
+        }
+        val per100carbs = when {
+            barcodeValues != null -> barcodeValues.carbs
+            ai != null && ai.portionGrams > 0 -> ai.carbs / ai.portionGrams * 100.0
+            else -> dish?.carbsPer100g ?: 0.0
+        }
+        val per100fat = when {
+            barcodeValues != null -> barcodeValues.fat
+            ai != null && ai.portionGrams > 0 -> ai.fat / ai.portionGrams * 100.0
+            else -> dish?.fatPer100g ?: 0.0
+        }
 
         val serving = ai?.portionGrams ?: numeric(portion)
-        val calculatedTotals = if (serving != null && serving > 0) {
+        val calculatedTotals = if (!barcodeNutritionMissing && serving != null && serving > 0) {
             runCatching {
                 NutritionMath.totalsForLabel(per100kcal, per100protein, per100carbs, per100fat, serving!!)
             }.getOrNull()
@@ -717,10 +863,11 @@ fun FoodScreen(
             } else null
         }
 
-        val formValid = name.isNotBlank() && runCatching { LocalDate.parse(date) }.isSuccess
+        val validDate = InputValidation.isValidDate(date)
+        val formValid = name.isNotBlank() && validDate
 
         ModalBottomSheet(
-            onDismissRequest = { showEditor = false },
+            onDismissRequest = { dismissEditor() },
             sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
             containerColor = MaterialTheme.colorScheme.surface
         ) {
@@ -761,6 +908,34 @@ fun FoodScreen(
                             Spacer(Modifier.width(6.dp))
                             Text("Gallery")
                         }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        OutlinedButton(
+                            onClick = ::startBarcodeCamera,
+                            enabled = !barcodeBusy,
+                        ) {
+                            Icon(Icons.Rounded.QrCodeScanner, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(if (barcodeBusy) "Scanning…" else "Scan barcode")
+                        }
+                        FormField(
+                            "Barcode",
+                            barcode,
+                            { value -> barcode = value.filter(Char::isDigit).take(14) },
+                            Modifier.weight(1f),
+                        )
+                        Button(
+                            onClick = { lookupBarcode() },
+                            enabled = !barcodeBusy && FoodProductLookup.validBarcode(barcode),
+                        ) { Text("Look up") }
+                    }
+                    if (barcodeStatus.isNotBlank()) {
+                        Text(barcodeStatus, color = Mist, style = MaterialTheme.typography.bodySmall)
                     }
 
                     if (aiRunning) {
@@ -893,7 +1068,7 @@ fun FoodScreen(
                             val id = editing!!.optString("id")
                             if (deleteConfirm == id) {
                                 store.remove("food", id)
-                                showEditor = false
+                                dismissEditor()
                                 deleteConfirm = ""
                             } else deleteConfirm = id
                         }) {
@@ -903,7 +1078,7 @@ fun FoodScreen(
                 }
 
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedButton(onClick = { showEditor = false }, modifier = Modifier.weight(1f)) {
+                    OutlinedButton(onClick = { dismissEditor() }, modifier = Modifier.weight(1f)) {
                         Text("Cancel")
                     }
                     Button(
@@ -935,17 +1110,22 @@ fun FoodScreen(
                                 "per100fat" to per100fat.toString(),
                                 "barcode" to barcode,
                                 "nutritionSource" to if (totals == null) "unverified"
+                                    else if (fromBarcode && barcodeNutrition != null) "openfoodfacts"
                                     else if (aiMacros != null) "macro_model"
                                     else if (recognizedDishId.isNotBlank()) "ai_food101"
-                                    else if (fromBarcode) "openfoodfacts"
                                     else "label",
-                                "macroSource" to (aiMacros?.source ?: if (recognizedDishId.isNotBlank()) "FoodDatabase" else "")
+                                "macroSource" to (
+                                    aiMacros?.source
+                                        ?: if (barcodeNutrition != null) "Open Food Facts"
+                                        else if (recognizedDishId.isNotBlank()) "FoodDatabase"
+                                        else ""
+                                    )
                             )
                             store.put("food", item)
                             if (!oldPhoto.isNullOrBlank() && oldPhoto != photo) {
                                 store.cleanupUnreferencedPhoto(oldPhoto)
                             }
-                            showEditor = false
+                            dismissEditor()
                         },
                         modifier = Modifier.weight(1f)
                     ) {
@@ -961,26 +1141,89 @@ fun FoodScreen(
         var proteinText by remember { mutableStateOf(targetProtein.roundToInt().toString()) }
         var carbsText by remember { mutableStateOf(targetCarbs.roundToInt().toString()) }
         var fatText by remember { mutableStateOf(targetFat.roundToInt().toString()) }
+        val parsedKcal = numeric(kcalText)?.takeIf { it in 1.0..100_000.0 }
+        val parsedProtein = numeric(proteinText)?.takeIf { it in 1.0..10_000.0 }
+        val parsedCarbs = numeric(carbsText)?.takeIf { it in 1.0..10_000.0 }
+        val parsedFat = numeric(fatText)?.takeIf { it in 1.0..10_000.0 }
+        val targetsValid = parsedKcal != null && parsedProtein != null &&
+            parsedCarbs != null && parsedFat != null
         BottomSheetFrame("Daily targets", { targetsEditor = false }) {
             Text("Values used for the target bar and the daily summary.",
                 color = Mist, style = MaterialTheme.typography.bodySmall)
-            FormField("Calorie (kcal)", kcalText, { kcalText = it.take(5) })
-            FormField("Proteine (g)", proteinText, { proteinText = it.take(5) })
-            FormField("Carboidrati (g)", carbsText, { carbsText = it.take(5) })
-            FormField("Grassi (g)", fatText, { fatText = it.take(5) })
+            FormField("Calorie (kcal)", kcalText, { kcalText = it.take(9) })
+            FormField("Proteine (g)", proteinText, { proteinText = it.take(9) })
+            FormField("Carboidrati (g)", carbsText, { carbsText = it.take(9) })
+            FormField("Grassi (g)", fatText, { fatText = it.take(9) })
+            if (!targetsValid) {
+                Text("Enter finite, plausible daily targets.",
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall)
+            }
             Button(onClick = {
-                store.setSetting("food_target_kcal", kcalText.cleanNumber().coerceAtLeast(0.0).toString())
-                store.setSetting("food_target_protein", proteinText.cleanNumber().coerceAtLeast(0.0).toString())
-                store.setSetting("food_target_carbs", carbsText.cleanNumber().coerceAtLeast(0.0).toString())
-                store.setSetting("food_target_fat", fatText.cleanNumber().coerceAtLeast(0.0).toString())
+                val safeKcal = parsedKcal ?: return@Button
+                val safeProtein = parsedProtein ?: return@Button
+                val safeCarbs = parsedCarbs ?: return@Button
+                val safeFat = parsedFat ?: return@Button
+                store.setSetting("food_target_kcal", safeKcal.toString())
+                store.setSetting("food_target_protein", safeProtein.toString())
+                store.setSetting("food_target_carbs", safeCarbs.toString())
+                store.setSetting("food_target_fat", safeFat.toString())
                 targetsEditor = false
-            }, Modifier.fillMaxWidth()) { Text("Save targets") }
+            }, Modifier.fillMaxWidth(), enabled = targetsValid) { Text("Save targets") }
         }
     }
 }
 
-private fun numeric(text: String): Double? = text.trim().replace(',', '.').toDoubleOrNull()
-    ?.takeIf { it.isFinite() && it >= 0 }
+/** Decode a user-selected image with a strict size bound before it reaches the AI model. */
+private fun decodeFoodSource(context: android.content.Context, uri: Uri): Bitmap? {
+    val resolver = context.contentResolver
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+    var sampleSize = 1
+    while (maxOf(bounds.outWidth / sampleSize, bounds.outHeight / sampleSize) > 1280) {
+        sampleSize *= 2
+    }
+    val options = BitmapFactory.Options().apply {
+        inSampleSize = sampleSize
+        inPreferredConfig = Bitmap.Config.ARGB_8888
+    }
+    val decoded = resolver.openInputStream(uri)?.use {
+        BitmapFactory.decodeStream(it, null, options)
+    } ?: return null
+
+    val orientation = resolver.openInputStream(uri)?.use { stream ->
+        runCatching {
+            ExifInterface(stream).getAttributeInt(
+                ExifInterface.TAG_ORIENTATION,
+                ExifInterface.ORIENTATION_NORMAL,
+            )
+        }.getOrDefault(ExifInterface.ORIENTATION_NORMAL)
+    } ?: ExifInterface.ORIENTATION_NORMAL
+    val matrix = Matrix()
+    when (orientation) {
+        ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.postScale(-1f, 1f)
+        ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+        ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.postScale(1f, -1f)
+        ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+        ExifInterface.ORIENTATION_TRANSVERSE -> {
+            matrix.postRotate(90f)
+            matrix.postScale(-1f, 1f)
+        }
+        ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+        ExifInterface.ORIENTATION_TRANSPOSE -> {
+            matrix.postRotate(270f)
+            matrix.postScale(-1f, 1f)
+        }
+    }
+    if (matrix.isIdentity) return decoded
+    val rotated = Bitmap.createBitmap(decoded, 0, 0, decoded.width, decoded.height, matrix, true)
+    if (rotated !== decoded) decoded.recycle()
+    return rotated
+}
+
+private fun numeric(text: String): Double? = InputValidation.parseNonNegativeNumber(text)
 
 private fun formatFoodNumber(value: Double) = "%.1f".format(Locale.US, value)
 

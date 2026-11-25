@@ -21,7 +21,7 @@ MainActivity
 
 | Livello | Package | Responsabilità |
 |---------|---------|----------------|
-| Dati | `data/` | `LocalStore` e persistenza SQLite; modelli; helper puri per metriche, punteggio, sonno, nutrizione e intelligenza locale |
+| Dati | `data/` | `LocalStore` e persistenza SQLite; backup ZIP streamabile; validazione input/import; modelli; helper puri per metriche, punteggio, sonno, nutrizione e intelligenza locale |
 | AI | `foodvision/` | `Food101Classifier` (Swin), `MacroModel` e `FoodDatabase`; inferenza ONNX sul dispositivo |
 | Piattaforma | `media/`, `reminders/`, `weather/` | elaborazione foto, promemoria Android locali e lookup meteo opzionale |
 | UI | `ui/` | schermate Compose, design system, navigazione e adapter |
@@ -60,6 +60,14 @@ Le foto sono cancellate insieme al record che le referenzia. `allowBackup="false
 impedisce il backup Android automatico; l'export manuale usa il Storage Access
 Framework e resta sotto controllo dell'utente.
 
+Il backup manuale è un ZIP con `manifest.json`, `data.json` e foto binarie.
+`BackupArchive` applica limiti e checksum durante la copia stream; `NativeBackupReader`
+trasforma il JSON standard in record indipendenti senza costruire un `JSONObject`
+monolitico. La validazione condivisa (`InputValidation` e `LocalStore.sanitizeEntity`)
+rifiuta importi non finiti, date impossibili e record incompleti. Foto e dati vengono
+preparati prima della transazione SQLite; un errore conserva integralmente lo stato
+precedente.
+
 ## AI on-device
 
 ```text
@@ -78,5 +86,6 @@ e controllate dall'utente.
 
 `ReminderScheduler` usa un alarm Android inexact e due canali locali: Tracker e Task.
 Il piano mantiene la scadenza reale del task, un orario configurabile e un marker
-idempotente per data. Le notifiche non contengono dati sensibili e l'apertura
-riporta l'utente nell'app.
+idempotente per data. Le notifiche non contengono dati sensibili; il `PendingIntent`
+trasporta tipo e ID del record, così l'apertura riporta l'utente al task o tracker
+esatto.

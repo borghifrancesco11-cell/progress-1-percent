@@ -7,10 +7,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -27,8 +28,90 @@ import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.roundToInt
 
-private data class GymSet(val reps: Int, val weight: Double, val done: Boolean)
-private data class GymExercise(val name: String, val rest: Int, val bodyweight: Boolean, val sets: List<GymSet>)
+internal data class GymSet(val reps: Int, val weight: Double, val done: Boolean)
+internal data class GymExercise(val name: String, val rest: Int, val bodyweight: Boolean, val sets: List<GymSet>)
+
+/** The complete active-session state that must survive configuration changes. */
+internal data class GymSessionState(
+    val templateJson: String,
+    val exercises: List<GymExercise>,
+    val elapsedSeconds: Int,
+    val restRemaining: Int
+)
+
+/**
+ * JSON-only codec for the active workout. Keeping this independent of Compose and Android
+ * makes the saveable state easy to verify and prevents accidental loss of set progress.
+ */
+internal object GymSessionStateCodec {
+    fun encode(state: GymSessionState): String = JSONObject().apply {
+        put("template", state.templateJson)
+        put("elapsedSeconds", state.elapsedSeconds)
+        put("restRemaining", state.restRemaining)
+        put("exercises", JSONArray().apply {
+            state.exercises.forEach { exercise ->
+                put(JSONObject().apply {
+                    put("name", exercise.name)
+                    put("rest", exercise.rest)
+                    put("bodyweight", exercise.bodyweight)
+                    put("sets", JSONArray().apply {
+                        exercise.sets.forEach { set ->
+                            put(JSONObject().apply {
+                                put("reps", set.reps)
+                                put("weight", set.weight)
+                                put("done", set.done)
+                            })
+                        }
+                    })
+                })
+            }
+        })
+    }.toString()
+
+    fun decode(encoded: String): GymSessionState? = runCatching {
+        val root = JSONObject(encoded)
+        val templateJson = root.getString("template")
+        // Validate the selected template before restoring the session.
+        JSONObject(templateJson)
+        val exerciseArray = root.optJSONArray("exercises") ?: JSONArray()
+        val exercises = (0 until exerciseArray.length()).mapNotNull { exerciseIndex ->
+            val exercise = exerciseArray.optJSONObject(exerciseIndex) ?: return@mapNotNull null
+            val setArray = exercise.optJSONArray("sets") ?: JSONArray()
+            GymExercise(
+                name = exercise.optString("name", "Exercise"),
+                rest = exercise.optInt("rest", 90).coerceAtLeast(0),
+                bodyweight = exercise.optBoolean("bodyweight", false),
+                sets = (0 until setArray.length()).mapNotNull { setIndex ->
+                    val set = setArray.optJSONObject(setIndex) ?: return@mapNotNull null
+                    GymSet(
+                        reps = set.optInt("reps", 10),
+                        weight = set.optDouble("weight", 0.0),
+                        done = set.optBoolean("done", false)
+                    )
+                }
+            )
+        }
+        GymSessionState(
+            templateJson = templateJson,
+            exercises = exercises,
+            elapsedSeconds = root.optInt("elapsedSeconds", 0).coerceAtLeast(0),
+            restRemaining = root.optInt("restRemaining", 0).coerceAtLeast(0)
+        )
+    }.getOrNull()
+}
+
+private class GymSessionHolder(initialState: GymSessionState?) {
+    var state by mutableStateOf(initialState)
+}
+
+private val gymSessionSaver = Saver<GymSessionHolder, String>(
+    save = { holder -> holder.state?.let { GymSessionStateCodec.encode(it) } ?: "" },
+    restore = { encoded ->
+        GymSessionHolder(
+            if (encoded.isBlank()) null else GymSessionStateCodec.decode(encoded)
+        )
+    }
+)
 
 /** Gym & calisthenics — templates, guided sessions with rest timer, records and history. */
 @Composable
@@ -39,17 +122,34 @@ fun GymScreen(
     onOpen: (String) -> Unit = {},
 ) {
     LaunchedEffect(Unit) { GymDefaults.seedIfEmpty(store) }
-    var session by remember { mutableStateOf<JSONObject?>(null) }
-    val active = session
-    if (active != null) {
-        GymSession(store = store, template = active, onExit = { session = null })
+    val sessionHolder = rememberSaveable(saver = gymSessionSaver) {
+        GymSessionHolder(null)
+    }
+    val activeState = sessionHolder.state
+    val activeTemplate = activeState?.let { state ->
+        runCatching { JSONObject(state.templateJson) }.getOrNull()
+    }
+    if (activeState != null && activeTemplate != null) {
+        GymSession(
+            store = store,
+            state = activeState,
+            onStateChange = { sessionHolder.state = it },
+            onExit = { sessionHolder.state = null }
+        )
     } else {
         GymOverview(
             store = store,
             snapshot = snapshot,
             onBack = onBack,
             onOpen = onOpen,
-            onStart = { session = it }
+            onStart = { template ->
+                sessionHolder.state = GymSessionState(
+                    templateJson = template.toString(),
+                    exercises = parseExercises(template),
+                    elapsedSeconds = 0,
+                    restRemaining = 0
+                )
+            }
         )
     }
 }
@@ -93,12 +193,7 @@ private fun GymOverview(
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
-                }
-                PageHeading("TRAIN & PROGRESS", "Gym", "Templates, guided sessions and personal records")
-            }
+            PageHeading("TRAIN & PROGRESS", "Gym", "Templates, guided sessions and personal records")
         }
 
         item {
@@ -281,50 +376,77 @@ private fun GymOverview(
 }
 
 @Composable
-private fun GymSession(store: LocalStore, template: JSONObject, onExit: () -> Unit) {
-    val templateName = template.optString("name", "Workout")
-    var exercises by remember(template) { mutableStateOf(parseExercises(template)) }
-    var elapsedSeconds by remember { mutableIntStateOf(0) }
-    var restRemaining by remember { mutableIntStateOf(0) }
+private fun GymSession(
+    store: LocalStore,
+    state: GymSessionState,
+    onStateChange: (GymSessionState) -> Unit,
+    onExit: () -> Unit
+) {
+    val template = remember(state.templateJson) {
+        runCatching { JSONObject(state.templateJson) }.getOrNull()
+    }
+    val templateName = template?.optString("name", "Workout") ?: "Workout"
+    // This state object is deliberately stable for the lifetime of the composable. The
+    // parent echoes every change into rememberSaveable, so a rotation can restore it
+    // without replacing the state object captured by the timer effects.
+    var workingState by remember { mutableStateOf(state) }
+
+    fun publish(updated: GymSessionState) {
+        workingState = updated
+        onStateChange(updated)
+    }
 
     LaunchedEffect(Unit) {
         while (true) {
             delay(1000)
-            elapsedSeconds++
+            val updated = workingState.copy(
+                elapsedSeconds = workingState.elapsedSeconds + 1
+            )
+            publish(updated)
         }
     }
-    LaunchedEffect(restRemaining) {
-        if (restRemaining > 0) {
+    LaunchedEffect(workingState.restRemaining) {
+        val remaining = workingState.restRemaining
+        if (remaining > 0) {
             delay(1000)
-            restRemaining--
+            publish(workingState.copy(restRemaining = (remaining - 1).coerceAtLeast(0)))
         }
     }
     BackHandler { onExit() }
 
+    val exercises = workingState.exercises
+    val elapsedSeconds = workingState.elapsedSeconds
+    val restRemaining = workingState.restRemaining
     val totalSets = exercises.sumOf { it.sets.size }
     val doneSets = exercises.sumOf { exercise -> exercise.sets.count { it.done } }
     val volume = exercises.sumOf { exercise -> exercise.sets.filter { it.done }.sumOf { it.reps * it.weight } }
 
     fun toggle(exIndex: Int, setIndex: Int) {
-        exercises = exercises.mapIndexed { i, exercise ->
+        val updatedExercises = workingState.exercises.mapIndexed { i, exercise ->
             if (i != exIndex) exercise else exercise.copy(
                 sets = exercise.sets.mapIndexed { j, set ->
                     if (j != setIndex) set else set.copy(done = !set.done)
                 }
             )
         }
-        val nowDone = exercises[exIndex].sets[setIndex].done
-        if (nowDone) restRemaining = exercises[exIndex].rest
+        val nowDone = updatedExercises[exIndex].sets[setIndex].done
+        publish(
+            workingState.copy(
+                exercises = updatedExercises,
+                restRemaining = if (nowDone) updatedExercises[exIndex].rest else workingState.restRemaining
+            )
+        )
     }
 
     fun adjust(exIndex: Int, setIndex: Int, delta: Double) {
-        exercises = exercises.mapIndexed { i, exercise ->
+        val updatedExercises = workingState.exercises.mapIndexed { i, exercise ->
             if (i != exIndex) exercise else exercise.copy(
                 sets = exercise.sets.mapIndexed { j, set ->
                     if (j != setIndex) set else set.copy(weight = (set.weight + delta).coerceAtLeast(0.0))
                 }
             )
         }
+        publish(workingState.copy(exercises = updatedExercises))
     }
 
     LazyColumn(
@@ -373,7 +495,7 @@ private fun GymSession(store: LocalStore, template: JSONObject, onExit: () -> Un
                             Text("Rest · ${restRemaining}s", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                             Text("Breathe, then start the next set.", style = MaterialTheme.typography.bodySmall, color = Mist)
                         }
-                        TextButton(onClick = { restRemaining = 0 }) { Text("Skip") }
+                        TextButton(onClick = { publish(workingState.copy(restRemaining = 0)) }) { Text("Skip") }
                     }
                 }
             }

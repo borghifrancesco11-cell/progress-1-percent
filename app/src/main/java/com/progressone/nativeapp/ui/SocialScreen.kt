@@ -4,7 +4,6 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -21,7 +20,7 @@ import kotlin.math.roundToInt
 
 /** Social detox — local daily limits read from Android Digital Wellbeing usage stats. */
 @Composable
-fun SocialScreen(store: LocalStore, onBack: () -> Unit) {
+fun SocialScreen(store: LocalStore) {
     val context = LocalContext.current
     val revision = store.revision
     val masterOn = remember(revision) { store.setting("social_master", "true") == "true" }
@@ -54,12 +53,7 @@ fun SocialScreen(store: LocalStore, onBack: () -> Unit) {
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         item {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
-                }
-                PageHeading("DIGITAL WELLBEING", "Social detox", "Set daily limits and protect your attention")
-            }
+            PageHeading("DIGITAL WELLBEING", "Social detox", "Set daily limits and protect your attention")
         }
 
         item {

@@ -5,17 +5,19 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
+import com.progressone.nativeapp.data.InputValidation
 import com.progressone.nativeapp.data.LocalStore
 import com.progressone.nativeapp.data.Metrics
 import org.json.JSONObject
-import java.time.LocalDate
 import java.util.Locale
 
 private val financeCategories = listOf("Food", "Transport", "Clothing", "School", "Leisure", "Health", "Savings", "Home", "Other")
@@ -129,12 +131,19 @@ fun FinanceScreen(store: LocalStore, snapshot: AppSnapshot) {
     }
     if (editingBudget) {
         var value by remember { mutableStateOf(if (budget <= 0) "" else budget.toString()) }
+        val parsedBudget = InputValidation.parseAmount(value)
         BottomSheetFrame("Monthly spending budget", { editingBudget = false }) {
-            FormField("Budget €", value, { value = it })
+            FormField("Budget €", value, { value = it.take(32) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+            if (value.isNotBlank() && parsedBudget == null) {
+                Text("Enter a finite budget between 0 and ${InputValidation.MAX_MONEY_AMOUNT.toLong()} €.",
+                    color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
             Button(onClick = {
-                store.setSetting("budget_$month", value.cleanNumber().coerceAtLeast(0.0).toString())
+                val safeBudget = parsedBudget ?: return@Button
+                store.setSetting("budget_$month", safeBudget.toString())
                 editingBudget = false
-            }, Modifier.fillMaxWidth()) { Text("Save budget") }
+            }, Modifier.fillMaxWidth(), enabled = value.isBlank() || parsedBudget != null) { Text("Save budget") }
         }
     }
 }
@@ -146,18 +155,31 @@ private fun TransactionEditor(store: LocalStore, onDismiss: () -> Unit) {
     var amount by remember { mutableStateOf("") }
     var category by remember { mutableStateOf("Food") }
     var date by remember { mutableStateOf(Metrics.day()) }
+    val parsedAmount = InputValidation.parseAmount(amount)
+    val validDate = InputValidation.isValidDate(date)
     BottomSheetFrame("New transaction", onDismiss) {
         Chips(listOf("expense", "income"), type) { type = it }
-        FormField("Description", title, { title = it })
-        FormField("Amount €", amount, { amount = it })
-        FormField("Date YYYY-MM-DD", date, { date = it })
+        FormField("Description", title, { title = it.take(120) })
+        FormField("Amount €", amount, { amount = it.take(32) },
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+        FormField("Date YYYY-MM-DD", date, { date = it.take(10) })
+        if (amount.isNotBlank() && parsedAmount == null) {
+            Text("Enter a finite amount between 0 and ${InputValidation.MAX_MONEY_AMOUNT.toLong()} €.",
+                color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        }
+        if (!validDate) {
+            Text("Enter a real date between ${InputValidation.MIN_VALID_YEAR} and ${InputValidation.MAX_VALID_YEAR}.",
+                color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        }
         Eyebrow("CATEGORY")
         Chips(financeCategories, category) { category = it }
         Button(onClick = {
+            val safeAmount = parsedAmount ?: return@Button
+            if (safeAmount <= 0.0) return@Button
             store.put("transaction", LocalStore.obj("type" to type, "title" to title.trim(),
-                "amount" to amount.cleanNumber(), "category" to category, "date" to date))
+                "amount" to safeAmount, "category" to category, "date" to date.trim()))
             onDismiss()
-        }, Modifier.fillMaxWidth(), enabled = title.isNotBlank() && amount.cleanNumber() > 0.0 &&
-            runCatching { LocalDate.parse(date) }.isSuccess) { Text("Save transaction") }
+        }, Modifier.fillMaxWidth(), enabled = title.isNotBlank() && parsedAmount != null &&
+            parsedAmount > 0.0 && validDate) { Text("Save transaction") }
     }
 }

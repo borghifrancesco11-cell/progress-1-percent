@@ -21,12 +21,14 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.progressone.nativeapp.data.HomeProgressEngine
+import com.progressone.nativeapp.data.HomeProgressModel
 import com.progressone.nativeapp.data.LocalStore
 import com.progressone.nativeapp.data.Metrics
+import com.progressone.nativeapp.data.ProgressBreakdown
 import com.progressone.nativeapp.data.ProgressScore
 import com.progressone.nativeapp.data.SleepUtils
 import com.progressone.nativeapp.data.SocialUtils
-import com.progressone.nativeapp.data.DailyProgressEngine
 import com.progressone.nativeapp.data.LocalCoachEngine
 import com.progressone.nativeapp.data.enabledModuleIds
 import kotlinx.coroutines.Dispatchers
@@ -49,6 +51,9 @@ fun TodayScreen(
     val month = todayIso.take(7)
     val activeGoals = snapshot.trackers.filterNot { it.optBoolean("archived") }
     val reduceMotion = remember(store.revision) { store.setting("reduce_motion", "false") == "true" }
+    val enabledIds by produceState<Set<String>>(emptySet(), store.revision) {
+        value = withContext(Dispatchers.IO) { store.enabledModuleIds() }
+    }
 
     // Weekly tracker scores are context only; the hero score is the weighted daily score.
     val weekScores = ProgressScore.lastSeven(activeGoals, snapshot.logs)
@@ -90,9 +95,15 @@ fun TodayScreen(
         )
     }
 
-    // Sleep: last night + weekly average
-    val sleepTarget = remember(store.revision) {
-        (store.setting("sleep_target_hours", "8").toDoubleOrNull() ?: 8.0).coerceIn(4.0, 12.0)
+    // Sleep: last night + weekly average. A disabled Sleep module never reads or applies its
+    // recovery target to Home scoring.
+    val sleepTarget by produceState(8.0, store.revision, enabledIds) {
+        value = withContext(Dispatchers.IO) {
+            if ("sleep" in enabledIds) {
+                (store.setting("sleep_target_hours", "8").toDoubleOrNull() ?: 8.0)
+                    .coerceIn(4.0, 12.0)
+            } else 8.0
+        }
     }
     val sleepData = remember(snapshot.sleeps, sleepTarget) {
         val last = SleepUtils.lastNight(snapshot.sleeps)
@@ -118,17 +129,37 @@ fun TodayScreen(
     }
     val socialSummary = remember(store.revision) { SocialUtils.summary(store) }
 
-    // The daily score is computed from enabled modules that have a real signal today.
-    val enabledIds = remember(store.revision) { store.enabledModuleIds() }
-    val dailyBreakdown = remember(snapshot, enabledIds, socialScore, sleepTarget, todayIso) {
-        DailyProgressEngine.today(
-            snapshot = snapshot,
-            enabledModules = enabledIds,
-            socialScore = socialScore,
-            date = todayIso,
-            sleepTargetHours = sleepTarget,
-        )
+    // The daily score and streak are CPU-heavy history calculations. Keep them off the UI thread
+    // and expose one deterministic model to the composable.
+    val homeProgress by produceState<HomeProgressModel?>(
+        initialValue = null,
+        snapshot,
+        enabledIds,
+        socialScore,
+        sleepTarget,
+        todayIso,
+    ) {
+        if (enabledIds.isNotEmpty()) {
+            value = withContext(Dispatchers.Default) {
+                HomeProgressEngine.calculate(
+                    snapshot = snapshot,
+                    enabledModules = enabledIds,
+                    socialScore = socialScore,
+                    date = todayIso,
+                    today = LocalDate.parse(todayIso),
+                    sleepTargetHours = sleepTarget,
+                    lookbackDays = 365,
+                )
+            }
+        }
     }
+    val currentHomeProgress = homeProgress?.takeIf {
+        it.enabledModules == enabledIds &&
+            it.socialScore == socialScore &&
+            it.sleepTargetHours == sleepTarget
+    }
+    val dailyBreakdown = currentHomeProgress?.dailyBreakdown ?: ProgressBreakdown()
+    val dailyStreak = currentHomeProgress?.streak ?: 0
     val coachInsight = remember(snapshot, enabledIds, dailyBreakdown.score, sleepTarget, todayIso) {
         LocalCoachEngine.home(
             snapshot = snapshot,
@@ -136,15 +167,6 @@ fun TodayScreen(
             totalScore = dailyBreakdown.score,
             sleepTargetHours = sleepTarget,
             date = todayIso,
-        )
-    }
-    val dailyStreak = remember(snapshot, enabledIds, sleepTarget) {
-        DailyProgressEngine.streak(
-            snapshot = snapshot,
-            enabledModules = enabledIds,
-            today = LocalDate.now(),
-            lookbackDays = 365,
-            sleepTargetHours = sleepTarget,
         )
     }
     val moduleNames = mapOf(

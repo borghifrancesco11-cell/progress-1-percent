@@ -16,29 +16,73 @@ concurrency:
   group: android-ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  APPLICATION_ID_RELEASE: com.progressone.nativeapp
+  APPLICATION_ID_DEBUG: com.progressone.nativeapp.debug
+  EXPECTED_VERSION_NAME: 1.4.0
+  EXPECTED_VERSION_CODE: '1400'
+  MODEL_PATH: app/src/main/assets/swin_food101_fp32.onnx
+  MODEL_SIZE_BYTES: '352389545'
+  MODEL_SHA256: f79aefaa7af43b7a11ae47267a8f733cb1152dec223d4d3db8fc95ab5dc44a83
+  MODEL_REVISION: e5e50bfc6425aa546f3b4421ca8bd79d0dd610b8
+  MODEL_URL: https://huggingface.co/onnx-community/swin-finetuned-food101-ONNX/resolve/e5e50bfc6425aa546f3b4421ca8bd79d0dd610b8/onnx/model.onnx
+  MACRO_MODEL_PATH: app/src/main/assets/macro_estimator.onnx
+  MACRO_MODEL_SIZE_BYTES: '7398723'
+  MACRO_MODEL_SHA256: a4c7ed6e196051d40b137b1277148ebd2c2d9b87f04d25ce5aeb42a2a351de26
+  BUNDLETOOL_VERSION: '1.18.1'
+  BUNDLETOOL_URL: https://github.com/google/bundletool/releases/download/1.18.1/bundletool-all-1.18.1.jar
+  BUNDLETOOL_SHA256: 675786493983787ffa11550bdb7c0715679a44e1643f3ff980a529e9c822595c
+
 jobs:
   build:
-    name: Test, lint and assemble debug APK
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    env:
-      APPLICATION_ID_DEBUG: com.progressone.nativeapp.debug
-      MODEL_PATH: app/src/main/assets/swin_food101_fp32.onnx
-      MODEL_SIZE_BYTES: '352389545'
-      MODEL_SHA256: f79aefaa7af43b7a11ae47267a8f733cb1152dec223d4d3db8fc95ab5dc44a83
-
+    name: Test, lint, emulator and APK verification
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
     steps:
       - name: Checkout del repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Coerenza tra tag annotato, main e versione Android
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          grep -Eq "versionName[[:space:]]*=[[:space:]]*\"$EXPECTED_VERSION_NAME\"" app/build.gradle.kts
+          grep -Eq "versionCode[[:space:]]*=[[:space:]]*$EXPECTED_VERSION_CODE" app/build.gradle.kts
+
+          if [[ "$GITHUB_REF_TYPE" == "tag" && "$GITHUB_REF_NAME" == v* ]]; then
+            tag_version="${GITHUB_REF_NAME#v}"
+            if [[ "$tag_version" != "$EXPECTED_VERSION_NAME" ]]; then
+              echo "::error::Il tag $GITHUB_REF_NAME non corrisponde a versionName $EXPECTED_VERSION_NAME"
+              exit 1
+            fi
+
+            tag_type="$(git cat-file -t "refs/tags/$GITHUB_REF_NAME")"
+            if [[ "$tag_type" != "tag" ]]; then
+              echo "::error::Il tag $GITHUB_REF_NAME deve essere annotato"
+              exit 1
+            fi
+
+            git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+            tagged_commit="$(git rev-list -n 1 "refs/tags/$GITHUB_REF_NAME")"
+            if ! git merge-base --is-ancestor "$tagged_commit" refs/remotes/origin/main; then
+              echo "::error::Il commit del tag $GITHUB_REF_NAME non è incluso in main"
+              exit 1
+            fi
+
+            echo "Tag annotato $GITHUB_REF_NAME verificato sul commit $tagged_commit"
+          fi
 
       - name: Configurazione di JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
         with:
           distribution: temurin
           java-version: '21'
 
       - name: Configurazione di Gradle
-        uses: gradle/actions/setup-gradle@v4
+        uses: gradle/actions/setup-gradle@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
 
       - name: Installazione dei componenti Android SDK
         shell: bash
@@ -68,12 +112,11 @@ jobs:
           printf 'sdk.dir=%s\n' "$sdk_root" > local.properties
           printf 'ANDROID_SDK_PATH=%s\n' "$sdk_root" >> "$GITHUB_ENV"
 
-      - name: Download e verifica del modello Food-101
+      - name: Download e verifica dei modelli ONNX
         shell: bash
         run: |
           set -euo pipefail
 
-          # Il modello da ~336 MB è escluso da git e deve essere scaricato al build time.
           if git ls-files --error-unmatch -- "$MODEL_PATH" >/dev/null 2>&1; then
             echo "::error::$MODEL_PATH è tracciato in git; il modello non deve essere committato"
             exit 1
@@ -85,119 +128,387 @@ jobs:
           test -f "$MODEL_PATH"
           actual_size="$(stat -c '%s' "$MODEL_PATH")"
           if [[ "$actual_size" != "$MODEL_SIZE_BYTES" ]]; then
-            echo "::error::Dimensione inattesa del modello: $actual_size byte (attesi $MODEL_SIZE_BYTES)"
+            echo "::error::Dimensione inattesa del modello Food-101: $actual_size byte (attesi $MODEL_SIZE_BYTES)"
             exit 1
           fi
-
           printf '%s  %s\n' "$MODEL_SHA256" "$MODEL_PATH" | sha256sum --check --strict
 
-      - name: Test JVM, lint e assemble della variante debug
-        run: ./gradlew --no-daemon --stacktrace testDebugUnitTest lintDebug assembleDebug
+          test -f "$MACRO_MODEL_PATH"
+          actual_macro_size="$(stat -c '%s' "$MACRO_MODEL_PATH")"
+          if [[ "$actual_macro_size" != "$MACRO_MODEL_SIZE_BYTES" ]]; then
+            echo "::error::Dimensione inattesa del macro estimator: $actual_macro_size byte (attesi $MACRO_MODEL_SIZE_BYTES)"
+            exit 1
+          fi
+          printf '%s  %s\n' "$MACRO_MODEL_SHA256" "$MACRO_MODEL_PATH" | sha256sum --check --strict
 
-      - name: Smoke test strumentato su emulatore x86_64
-        uses: reactivecircus/android-emulator-runner@v2
+      - name: Test JVM, lint e build delle varianti debug e release
+        run: >-
+          ./gradlew --no-daemon --stacktrace --dependency-verification strict
+          testDebugUnitTest testReleaseUnitTest
+          lintDebug lintRelease
+          assembleDebug assembleRelease bundleRelease
+
+      - name: Smoke test e test backup strumentato su emulatore x86_64
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: 36
           arch: x86_64
           profile: medium_phone
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
-          script: ./gradlew --no-daemon connectedDebugAndroidTest
+          script: ./gradlew --no-daemon --dependency-verification strict connectedDebugAndroidTest
 
-      - name: Verifica dell'APK e generazione di checksum e provenienza
+      - name: Verifica di identità, versione, firma e allineamento delle APK
         shell: bash
         run: |
           set -euo pipefail
 
-          apk_source="app/build/outputs/apk/debug/app-debug.apk"
-          test -s "$apk_source"
-
+          debug_apk="app/build/outputs/apk/debug/app-debug.apk"
+          release_apk="app/build/outputs/apk/release/app-release-unsigned.apk"
+          release_bundle="app/build/outputs/bundle/release/app-release.aab"
           aapt="$ANDROID_SDK_PATH/build-tools/36.0.0/aapt"
           apksigner="$ANDROID_SDK_PATH/build-tools/36.0.0/apksigner"
+          zipalign="$ANDROID_SDK_PATH/build-tools/36.0.0/zipalign"
+          test -s "$debug_apk"
+          test -s "$release_apk"
+          test -s "$release_bundle"
           test -x "$aapt"
           test -x "$apksigner"
+          test -x "$zipalign"
 
-          badging="$("$aapt" dump badging "$apk_source")"
-          application_id="$(printf '%s\n' "$badging" | awk -F"'" '/^package: name=/ {print $2; exit}')"
-          version_code="$(printf '%s\n' "$badging" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p" | head -n 1)"
-          version_name="$(printf '%s\n' "$badging" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p" | head -n 1)"
+          debug_badging="$("$aapt" dump badging "$debug_apk")"
+          release_badging="$("$aapt" dump badging "$release_apk")"
 
-          if [[ "$application_id" != "$APPLICATION_ID_DEBUG" ]]; then
-            echo "::error::applicationId inatteso: '$application_id' (atteso '$APPLICATION_ID_DEBUG')"
+          debug_id="$(printf '%s\n' "$debug_badging" | awk -F"'" '/^package: name=/ {print $2; exit}')"
+          release_id="$(printf '%s\n' "$release_badging" | awk -F"'" '/^package: name=/ {print $2; exit}')"
+          release_version_name="$(printf '%s\n' "$release_badging" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p" | head -n 1)"
+          release_version_code="$(printf '%s\n' "$release_badging" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p" | head -n 1)"
+
+          [[ "$debug_id" == "$APPLICATION_ID_DEBUG" ]] || {
+            echo "::error::applicationId debug inatteso: $debug_id"
+            exit 1
+          }
+          [[ "$release_id" == "$APPLICATION_ID_RELEASE" ]] || {
+            echo "::error::applicationId release inatteso: $release_id"
+            exit 1
+          }
+          [[ "$release_version_name" == "$EXPECTED_VERSION_NAME" ]] || {
+            echo "::error::versionName release inatteso: $release_version_name"
+            exit 1
+          }
+          [[ "$release_version_code" == "$EXPECTED_VERSION_CODE" ]] || {
+            echo "::error::versionCode release inatteso: $release_version_code"
+            exit 1
+          }
+
+          "$apksigner" verify --verbose "$debug_apk"
+          "$zipalign" -c -P 16 4 "$debug_apk"
+          "$zipalign" -c -P 16 4 "$release_apk"
+          chmod +x scripts/verify_elf_alignment.sh
+          scripts/verify_elf_alignment.sh "$debug_apk"
+          scripts/verify_elf_alignment.sh "$release_apk"
+
+          release_abis="$(
+            printf '%s\n' "$release_badging" |
+              sed -n "s/^native-code: '\([^']*\)'$/\1/p" |
+              paste -sd, -
+          )"
+          if [[ "$release_abis" != "arm64-v8a" ]]; then
+            echo "::error::ABI release inattese: '$release_abis' (attesa arm64-v8a)"
             exit 1
           fi
-          if [[ -z "$version_code" || -z "$version_name" ]]; then
-            echo "::error::Impossibile leggere versionCode/versionName dall'APK"
+
+          permissions="$("$aapt" dump permissions "$release_apk")"
+          if grep -q 'android.permission.CAMERA' <<<"$permissions"; then
+            echo "::error::La release non deve richiedere il permesso CAMERA"
             exit 1
           fi
 
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
-            expected_version="${GITHUB_REF_NAME#v}"
-            if [[ "$version_name" != "$expected_version" ]]; then
-              echo "::error::versionName '$version_name' non coincide con il tag '$GITHUB_REF_NAME'"
+      - name: Verifica dell'allineamento 16 KiB dell'AAB
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          bundletool="$RUNNER_TEMP/bundletool-all-$BUNDLETOOL_VERSION.jar"
+          curl --fail --location --silent --show-error \
+            "$BUNDLETOOL_URL" --output "$bundletool"
+          printf '%s  %s\n' "$BUNDLETOOL_SHA256" "$bundletool" | sha256sum --check --strict
+
+          bundle_config="$(java -jar "$bundletool" dump config --bundle=app/build/outputs/bundle/release/app-release.aab)"
+          if ! grep -q 'PAGE_ALIGNMENT_16K' <<<"$bundle_config"; then
+            echo "::error::L'AAB non richiede l'allineamento PAGE_ALIGNMENT_16K"
+            exit 1
+          fi
+
+      - name: Carica la APK release unsigned per la firma del job release
+        if: github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: progress-one-release-unsigned
+          path: app/build/outputs/apk/release/app-release-unsigned.apk
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 1
+
+  release:
+    name: Firma e pubblicazione della GitHub Release
+    needs: build
+    if: github.event_name == 'push' && github.ref_type == 'tag' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment:
+      name: production
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - name: Verifica preliminare della Release esistente
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::La release $GITHUB_REF_NAME esiste già; la pipeline non sovrascrive asset esistenti"
+            exit 1
+          fi
+
+      - name: Checkout del repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          token: ${{ github.token }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verifica del tag remoto e di main prima della firma
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git fetch --force --no-tags origin \
+            "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+          git fetch --force origin \
+            "+refs/heads/main:refs/remotes/origin/main"
+
+          tag_type="$(git cat-file -t "refs/tags/$GITHUB_REF_NAME")"
+          if [[ "$tag_type" != "tag" ]]; then
+            echo "::error::Il tag remoto $GITHUB_REF_NAME non è annotato"
+            exit 1
+          fi
+
+          tagged_commit="$(git rev-list -n 1 "refs/tags/$GITHUB_REF_NAME")"
+          if [[ "$tagged_commit" != "$GITHUB_SHA" ]]; then
+            echo "::error::Il tag $GITHUB_REF_NAME non punta più al commit $GITHUB_SHA"
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "$tagged_commit" refs/remotes/origin/main; then
+            echo "::error::Il commit del tag $GITHUB_REF_NAME non è incluso in main"
+            exit 1
+          fi
+
+      - name: Configurazione di JDK 21
+        uses: actions/setup-java@d1374f8ac74474200d16ef8ecee22c7ae7a51880 # v6.3.0
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Installazione dei tool Android per firma e allineamento
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          test -n "$sdk_root"
+          sdkmanager="$sdk_root/cmdline-tools/latest/bin/sdkmanager"
+          if [[ ! -x "$sdkmanager" ]]; then
+            sdkmanager="$(command -v sdkmanager || true)"
+          fi
+          test -x "$sdkmanager"
+
+          yes | "$sdkmanager" --sdk_root="$sdk_root" --licenses >/dev/null || true
+          "$sdkmanager" --sdk_root="$sdk_root" "build-tools;36.0.0"
+          test -x "$sdk_root/build-tools/36.0.0/apksigner"
+          test -x "$sdk_root/build-tools/36.0.0/zipalign"
+          test -x "$sdk_root/build-tools/36.0.0/aapt"
+
+      - name: Download della APK release unsigned
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: progress-one-release-unsigned
+          path: unsigned
+
+      - name: Ripristino protetto del keystore
+        shell: bash
+        env:
+          KEYSTORE_BASE64: ${{ secrets.PROGRESS_RELEASE_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$KEYSTORE_BASE64" ]]; then
+            echo "::error::secret GitHub mancante: PROGRESS_RELEASE_KEYSTORE_BASE64"
+            exit 1
+          fi
+          umask 077
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/progress-release.jks"
+          chmod 600 "$RUNNER_TEMP/progress-release.jks"
+          test -s "$RUNNER_TEMP/progress-release.jks"
+
+      - name: Allineamento, firma e verifica dell'APK production
+        shell: bash
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.PROGRESS_RELEASE_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.PROGRESS_RELEASE_KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.PROGRESS_RELEASE_KEY_PASSWORD }}
+          EXPECTED_CERT_SHA256: ${{ secrets.PROGRESS_RELEASE_CERT_SHA256 }}
+        run: |
+          set -euo pipefail
+          trap 'rm -f "$RUNNER_TEMP/progress-release.jks"' EXIT
+
+          for value in KEYSTORE_PASSWORD KEY_ALIAS KEY_PASSWORD EXPECTED_CERT_SHA256; do
+            if [[ -z "${!value}" ]]; then
+              echo "::error::secret GitHub mancante: $value"
               exit 1
             fi
+          done
+
+          unsigned="unsigned/app-release-unsigned.apk"
+          aligned="$RUNNER_TEMP/progress-release-aligned.apk"
+          signed="$RUNNER_TEMP/progress-release-signed.apk"
+          sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+          sdk_tools="$sdk_root/build-tools/36.0.0"
+          test -s "$unsigned"
+
+          tag_version="${GITHUB_REF_NAME#v}"
+          if [[ "$tag_version" != "$EXPECTED_VERSION_NAME" ]]; then
+            echo "::error::Il tag $GITHUB_REF_NAME non corrisponde a versionName $EXPECTED_VERSION_NAME"
+            exit 1
           fi
 
-          "$apksigner" verify --verbose "$apk_source"
+          "$sdk_tools/zipalign" -P 16 -f 4 "$unsigned" "$aligned"
+          "$sdk_tools/apksigner" sign \
+            --ks "$RUNNER_TEMP/progress-release.jks" \
+            --ks-pass env:KEYSTORE_PASSWORD \
+            --key-pass env:KEY_PASSWORD \
+            --ks-key-alias "$KEY_ALIAS" \
+            --out "$signed" \
+            "$aligned"
 
+          "$sdk_tools/apksigner" verify --verbose --print-certs "$signed"
+          "$sdk_tools/zipalign" -c -P 16 4 "$signed"
+
+          signed_badging="$("$sdk_tools/aapt" dump badging "$signed")"
+          signed_id="$(printf '%s\n' "$signed_badging" | awk -F"'" '/^package: name=/ {print $2; exit}')"
+          signed_version_name="$(printf '%s\n' "$signed_badging" | sed -n "s/.*versionName='\([^']*\)'.*/\1/p" | head -n 1)"
+          signed_version_code="$(printf '%s\n' "$signed_badging" | sed -n "s/.*versionCode='\([^']*\)'.*/\1/p" | head -n 1)"
+          [[ "$signed_id" == "$APPLICATION_ID_RELEASE" ]] || {
+            echo "::error::applicationId firmato inatteso: $signed_id"
+            exit 1
+          }
+          [[ "$signed_version_name" == "$EXPECTED_VERSION_NAME" ]] || {
+            echo "::error::versionName firmato inatteso: $signed_version_name"
+            exit 1
+          }
+          [[ "$signed_version_code" == "$EXPECTED_VERSION_CODE" ]] || {
+            echo "::error::versionCode firmato inatteso: $signed_version_code"
+            exit 1
+          }
+
+          actual_cert="$("$sdk_tools/apksigner" verify --print-certs "$signed" \
+            | sed -n 's/.*certificate SHA-256 digest: //p' \
+            | head -n 1 \
+            | tr -d ':' \
+            | tr '[:upper:]' '[:lower:]')"
+          expected_cert="$(printf '%s' "$EXPECTED_CERT_SHA256" | tr -d ':' | tr '[:upper:]' '[:lower:]')"
+          if [[ "$actual_cert" != "$expected_cert" ]]; then
+            echo "::error::certificato APK non previsto: $actual_cert"
+            exit 1
+          fi
+
+          chmod +x scripts/verify_elf_alignment.sh
+          scripts/verify_elf_alignment.sh "$signed"
+
+          version="${GITHUB_REF_NAME#v}"
           mkdir -p release-assets
-          cp "$apk_source" release-assets/Progress1Percent-debug.apk
+          cp "$signed" "release-assets/Progress1Percent_v${version}.apk"
           (
             cd release-assets
-            sha256sum Progress1Percent-debug.apk > Progress1Percent-debug.apk.sha256
+            sha256sum "Progress1Percent_v${version}.apk" > "Progress1Percent_v${version}.apk.sha256"
           )
-          apk_sha256="$(awk '{print $1}' release-assets/Progress1Percent-debug.apk.sha256)"
+          apk_sha256="$(awk '{print $1}' "release-assets/Progress1Percent_v${version}.apk.sha256")"
 
           cat > release-assets/provenance.txt <<EOF
           Progress 1 Percent — provenienza della build
           ================================================
 
-          Variante: debug
-          Application ID: $application_id
-          Versione Android: $version_name (versionCode $version_code)
+          Variante: release
+          Application ID: $APPLICATION_ID_RELEASE
+          Versione Android: $EXPECTED_VERSION_NAME (versionCode $EXPECTED_VERSION_CODE)
           Commit: $GITHUB_SHA
           Ref: $GITHUB_REF
+          Tag: $GITHUB_REF_NAME (annotato, commit incluso in main)
           Workflow: $GITHUB_WORKFLOW (run $GITHUB_RUN_ID)
           Run URL: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID
           Generato (UTC): $(date -u +'%Y-%m-%dT%H:%M:%SZ')
 
-          Task Gradle: testDebugUnitTest lintDebug assembleDebug connectedDebugAndroidTest
-          File APK: Progress1Percent-debug.apk
+          Task Gradle: testDebugUnitTest testReleaseUnitTest lintDebug lintRelease assembleDebug assembleRelease bundleRelease connectedDebugAndroidTest
+          File APK: Progress1Percent_v${version}.apk
           SHA-256 APK: $apk_sha256
+          SHA-256 certificato: $actual_cert
+          Allineamento ZIP: 16 KiB verificato
+          Allineamento ELF LOAD: almeno 0x4000 verificato
+          Confine GNU_RELRO: nessun dato scrivibile sulla stessa pagina 16 KiB
 
-          Firma: keystore debug generato da Android Gradle Plugin; nessuna chiave di produzione.
-          Modello Food-101: app/src/main/assets/swin_food101_fp32.onnx
-          Origine modello: https://huggingface.co/onnx-community/swin-finetuned-food101-ONNX/resolve/main/onnx/model.onnx
+          Modello Food-101: $MODEL_PATH
+          Origine modello: $MODEL_URL
+          Revisione Hugging Face: $MODEL_REVISION
           SHA-256 modello: $MODEL_SHA256
           Dimensione modello: $MODEL_SIZE_BYTES byte
+
+          Macro estimator: $MACRO_MODEL_PATH
+          SHA-256 macro estimator: $MACRO_MODEL_SHA256
+          Dimensione macro estimator: $MACRO_MODEL_SIZE_BYTES byte
           EOF
 
-      - name: Upload degli artefatti di build
-        uses: actions/upload-artifact@v4
+      - name: Genera attestazione GitHub della provenienza
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
-          name: progress-one-debug-apk
+          subject-path: release-assets/*.apk
+
+      - name: Upload degli artefatti di release
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: progress-one-release-assets
           path: release-assets/
           if-no-files-found: error
+          overwrite: true
           retention-days: 14
 
-  release:
-    name: Pubblicazione della GitHub Release per i tag v*
-    needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: write
+      - name: Verifica finale del tag remoto e di main
+        shell: bash
+        run: |
+          set -euo pipefail
 
-    steps:
-      - name: Download di APK, checksum e provenienza
-        uses: actions/download-artifact@v4
-        with:
-          name: progress-one-debug-apk
-          path: release-assets
+          git fetch --force --no-tags origin \
+            "refs/tags/$GITHUB_REF_NAME:refs/tags/$GITHUB_REF_NAME"
+          git fetch --force origin \
+            "+refs/heads/main:refs/remotes/origin/main"
 
-      - name: Creazione o aggiornamento della GitHub Release
+          [[ "$(git cat-file -t "refs/tags/$GITHUB_REF_NAME")" == "tag" ]] || {
+            echo "::error::Il tag remoto $GITHUB_REF_NAME non è annotato"
+            exit 1
+          }
+          tagged_commit="$(git rev-list -n 1 "refs/tags/$GITHUB_REF_NAME")"
+          [[ "$tagged_commit" == "$GITHUB_SHA" ]] || {
+            echo "::error::Il tag $GITHUB_REF_NAME è stato spostato"
+            exit 1
+          }
+          git merge-base --is-ancestor "$tagged_commit" refs/remotes/origin/main || {
+            echo "::error::Il commit del tag $GITHUB_REF_NAME non è più incluso in main"
+            exit 1
+          }
+
+      - name: Creazione della GitHub Release senza sovrascritture
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -205,49 +516,38 @@ jobs:
           set -euo pipefail
 
           tag="$GITHUB_REF_NAME"
-          apk="release-assets/Progress1Percent-debug.apk"
-          checksum="release-assets/Progress1Percent-debug.apk.sha256"
+          version="${tag#v}"
+          apk="release-assets/Progress1Percent_v${version}.apk"
+          checksum="release-assets/Progress1Percent_v${version}.apk.sha256"
           provenance="release-assets/provenance.txt"
-
-          if [[ "$tag" != v* ]]; then
-            echo "::error::Tag non valido per la release: $tag"
-            exit 1
-          fi
           test -s "$apk"
           test -s "$checksum"
           test -s "$provenance"
 
-          apk_sha256="$(awk '{print $1}' "$checksum")"
-          title="Progress 1 Percent $tag (DEBUG)"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::La release $tag esiste già; per sicurezza gli asset non vengono sovrascritti"
+            exit 1
+          fi
+
           notes_file="$RUNNER_TEMP/release-notes.md"
-
           cat > "$notes_file" <<EOF
-          ## Progress 1 Percent $tag — build DEBUG
+          ## Progress 1 Percent $tag
 
-          Questa release contiene una APK **debug**, firmata con il keystore debug temporaneo di GitHub Actions.
+          APK release verificata di **Progress 1 Percent**.
 
-          - Variante: \`debug\`
-          - Application ID: \`com.progressone.nativeapp.debug\`
-          - Commit: \`$GITHUB_SHA\`
-          - SHA-256 APK: \`$apk_sha256\`
-          - Task CI: \`testDebugUnitTest\`, \`lintDebug\`, \`assembleDebug\`, \`connectedDebugAndroidTest\`
+          - Application ID: \`$APPLICATION_ID_RELEASE\`
+          - Versione: \`$EXPECTED_VERSION_NAME\` (versionCode \`$EXPECTED_VERSION_CODE\`)
+          - Modello Food-101: locale, revisione e checksum verificati
+          - Backup: ZIP streamabile con \`manifest.json\`, \`data.json\` e foto binarie
+          - Test: JVM debug/release, lint debug/release, build e test su emulatore x86_64
+          - Firma, checksum, allineamento ZIP/ELF 16 KiB e attestazione GitHub verificati
 
-          La provenienza completa, il checksum del modello Food-101 e l'origine della build sono disponibili nell'asset \`provenance.txt\`.
-
-          > **Attenzione:** l'\`applicationId\` \`com.progressone.nativeapp.debug\` consente l'installazione affiancata alla build di produzione. Non usare questa variante per aggiornare l'app di produzione.
+          Il checksum SHA-256 e la provenienza completa sono disponibili negli asset della release.
           EOF
 
-          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$tag" "$apk" "$checksum" "$provenance" \
-              --clobber --repo "$GITHUB_REPOSITORY"
-            gh release edit "$tag" \
-              --title "$title" \
-              --notes-file "$notes_file" \
-              --repo "$GITHUB_REPOSITORY"
-          else
-            gh release create "$tag" "$apk" "$checksum" "$provenance" \
-              --verify-tag \
-              --title "$title" \
-              --notes-file "$notes_file" \
-              --repo "$GITHUB_REPOSITORY"
-          fi
+          gh release create "$tag" "$apk" "$checksum" "$provenance" \
+            --verify-tag \
+            --latest \
+            --title "Progress 1 Percent $tag" \
+            --notes-file "$notes_file" \
+            --repo "$GITHUB_REPOSITORY"

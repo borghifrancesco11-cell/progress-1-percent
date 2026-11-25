@@ -254,7 +254,8 @@ fun ProgressRing(progress: Float, modifier: Modifier = Modifier, caption: String
 
 fun JSONObject.str(key: String, default: String = ""): String = optString(key, default).let { if (it == "null") default else it }
 fun JSONObject.num(key: String, default: Double = 0.0): Double = optDouble(key, default)
-fun String.cleanNumber(): Double = replace(',', '.').toDoubleOrNull() ?: 0.0
+/** Parse a user-entered number while rejecting overflow values such as `1e309`. */
+fun String.cleanNumber(): Double = replace(',', '.').toDoubleOrNull()?.takeIf { it.isFinite() } ?: 0.0
 fun euro(value: Double): String = "€%.2f".format(java.util.Locale.ITALY, value)
 fun openSource(context: Context, url: String) {
     try { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) } catch (_: Exception) { }

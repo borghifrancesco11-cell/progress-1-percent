@@ -22,7 +22,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.rounded.ArrowBack
 import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.ChevronLeft
 import androidx.compose.material.icons.rounded.ChevronRight
@@ -36,7 +35,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,17 +49,19 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.progressone.nativeapp.data.DailyProgressEngine
+import com.progressone.nativeapp.data.CalendarProgressEngine
+import com.progressone.nativeapp.data.CalendarProgressModel
 import com.progressone.nativeapp.data.LocalStore
 import com.progressone.nativeapp.data.ProgressBreakdown
 import com.progressone.nativeapp.data.TaskHistory
 import com.progressone.nativeapp.data.enabledModuleIds
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.TextStyle
 import java.util.Locale
-import kotlin.math.roundToInt
 
 private val CalendarFullDateFormatter = DateTimeFormatter.ofPattern("EEEE, d MMMM yyyy", Locale.ENGLISH)
 private val CalendarShortDateFormatter = DateTimeFormatter.ofPattern("d MMM yyyy", Locale.ENGLISH)
@@ -83,40 +86,69 @@ private val CalendarModuleLabels = mapOf(
 fun CalendarScreen(
     store: LocalStore,
     snapshot: AppSnapshot,
-    onBack: () -> Unit,
     onDateSelected: (LocalDate) -> Unit = {},
+    sleepTargetHours: Double? = null,
 ) {
     val today = remember { LocalDate.now() }
-    var displayedYear by remember { mutableStateOf(today.year) }
-    var selectedIso by remember { mutableStateOf(today.toString()) }
+    var displayedYear by rememberSaveable { mutableStateOf(today.year) }
+    var selectedIso by rememberSaveable { mutableStateOf(today.toString()) }
     val selectedDate = remember(selectedIso) { parseCalendarDate(selectedIso) ?: today }
 
-    val enabledIds = remember(store.revision) { store.enabledModuleIds() }
-    val yearHistory = remember(snapshot, enabledIds, displayedYear) {
-        DailyProgressEngine.year(snapshot, enabledIds, displayedYear)
+    // Preferences are read off the UI thread. An explicit target can be supplied by the owner;
+    // otherwise Calendar reads the configured sleep_target_hours value itself.
+    val configuredSleepTarget by produceState(
+        initialValue = 8.0,
+        store,
+        store.revision,
+        sleepTargetHours,
+    ) {
+        value = withContext(Dispatchers.IO) {
+            val explicit = sleepTargetHours?.takeIf { it.isFinite() && it > 0.0 }
+            (explicit ?: store.setting("sleep_target_hours", "8").toDoubleOrNull() ?: 8.0)
+                .coerceIn(4.0, 12.0)
+        }
     }
-    val selectedProgress = remember(snapshot, enabledIds, selectedDate) {
-        DailyProgressEngine.forDate(snapshot, enabledIds, selectedDate.toString())
-    }
-    val currentStreak = remember(snapshot, enabledIds, today) {
-        DailyProgressEngine.streak(
-            snapshot = snapshot,
-            enabledModules = enabledIds,
-            today = today,
-            lookbackDays = 730,
-        )
+    val enabledIds by produceState<Set<String>>(emptySet(), store, store.revision) {
+        value = withContext(Dispatchers.IO) { store.enabledModuleIds() }
     }
 
-    val activeDays = remember(yearHistory, displayedYear) {
-        DailyProgressEngine.activeDays(displayedYear, yearHistory)
+    // Annual history and streak are pure CPU work. Calculate the complete model away from the
+    // Compose/UI thread and keep the screen responsive while a large year is processed.
+    val progressModel by produceState<CalendarProgressModel?>(
+        initialValue = null,
+        snapshot,
+        enabledIds,
+        displayedYear,
+        selectedDate,
+        today,
+        configuredSleepTarget,
+    ) {
+        if (enabledIds.isNotEmpty()) {
+            value = withContext(Dispatchers.Default) {
+                CalendarProgressEngine.calculate(
+                    snapshot = snapshot,
+                    enabledModules = enabledIds,
+                    year = displayedYear,
+                    selectedDate = selectedDate,
+                    today = today,
+                    sleepTargetHours = configuredSleepTarget,
+                    lookbackDays = 730,
+                )
+            }
+        }
     }
-    val activeMonths = remember(yearHistory, displayedYear) {
-        DailyProgressEngine.monthsWithActivity(displayedYear, yearHistory)
+    val currentModel = progressModel?.takeIf {
+        it.year == displayedYear &&
+            it.selectedDate == selectedDate.toString() &&
+            it.enabledModules == enabledIds &&
+            it.sleepTargetHours == configuredSleepTarget
     }
-    val averageScore = remember(yearHistory) {
-        val activeScores = yearHistory.values.filter { it.completedActions > 0 }.map { it.score }
-        if (activeScores.isEmpty()) 0 else activeScores.average().roundToInt()
-    }
+    val yearHistory = currentModel?.history.orEmpty()
+    val selectedProgress = currentModel?.selectedProgress ?: ProgressBreakdown()
+    val currentStreak = currentModel?.currentStreak ?: 0
+    val activeDays = currentModel?.activeDays ?: 0
+    val activeMonths = currentModel?.activeMonths ?: 0
+    val averageScore = currentModel?.averageScore ?: 0
     val selectedTaskStats = remember(snapshot.tasks, selectedDate) {
         calendarTaskStats(snapshot.tasks, selectedDate)
     }
@@ -146,21 +178,11 @@ fun CalendarScreen(
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.Top,
-            ) {
-                IconButton(onClick = onBack) {
-                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Back")
-                }
-                Column(Modifier.weight(1f)) {
-                    PageHeading(
-                        "ANNUAL HISTORY · ON DEVICE",
-                        "Calendar",
-                        "A year of steady progress, one day at a time.",
-                    )
-                }
-            }
+            PageHeading(
+                "ANNUAL HISTORY · ON DEVICE",
+                "Calendar",
+                "A year of steady progress, one day at a time.",
+            )
         }
 
         item {
@@ -464,7 +486,8 @@ private fun CalendarHeatmap(
                                 progress = progress,
                                 inYear = inYear,
                                 selected = inYear && date == selectedDate,
-                                today = inYear && date == today,
+                                isToday = inYear && date == today,
+                                currentDate = today,
                                 size = cellSize,
                                 onClick = { if (inYear) onDateSelected(date) },
                             )
@@ -482,14 +505,15 @@ private fun CalendarHeatmapCell(
     progress: ProgressBreakdown?,
     inYear: Boolean,
     selected: Boolean,
-    today: Boolean,
+    isToday: Boolean,
+    currentDate: LocalDate,
     size: androidx.compose.ui.unit.Dp,
     onClick: () -> Unit,
 ) {
     val shape = RoundedCornerShape(2.dp)
     val cellColor = when {
         !inYear -> Color.Transparent
-        date.isAfter(LocalDate.now()) -> GlassLight.copy(alpha = 0.42f)
+        date.isAfter(currentDate) -> GlassLight.copy(alpha = 0.42f)
         progress == null || progress.completedActions <= 0 -> GlassLight
         else -> Mint.copy(
             alpha = when {
@@ -502,12 +526,12 @@ private fun CalendarHeatmapCell(
     }
     val borderColor = when {
         selected -> Ice
-        today -> Lavender
+        isToday -> Lavender
         else -> Color.Transparent
     }
     val borderWidth = when {
         selected -> 1.5.dp
-        today -> 1.dp
+        isToday -> 1.dp
         else -> 0.dp
     }
     val actionCount = progress?.completedActions ?: 0
