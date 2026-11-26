@@ -32,7 +32,7 @@ fun FinanceScreen(store: LocalStore, snapshot: AppSnapshot) {
     var editingBudget by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf<JSONObject?>(null) }
     LazyColumn(contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(15.dp)) {
-        item { PageHeading("PRIVATE · ON DEVICE", "Finances", "Understand your spending without tracking or accounts.") }
+        item { PageHeading("PRIVATE · ON DEVICE", "Finances", "") }
         item {
             FrostCard(Modifier.fillMaxWidth(), highlighted = true) {
                 Eyebrow("MONTHLY BALANCE · $month")

@@ -179,9 +179,9 @@ fun CalendarScreen(
     ) {
         item {
             PageHeading(
-                "ANNUAL HISTORY · ON DEVICE",
+                "HISTORY",
                 "Calendar",
-                "A year of steady progress, one day at a time.",
+                "",
             )
         }
 
@@ -232,7 +232,7 @@ fun CalendarScreen(
         }
 
         item {
-            SectionHeading("Commitments", "Overdue, due today and what's next")
+            SectionHeading("Commitments", "")
         }
 
         val overdue = commitments.filter { it.status(today) == CalendarCommitmentStatus.OVERDUE }
@@ -389,7 +389,7 @@ private fun CalendarHeatmapCard(
     onDateSelected: (LocalDate) -> Unit,
 ) {
     FrostCard(Modifier.fillMaxWidth()) {
-        SectionHeading("Annual activity", "Tap a day to inspect it")
+        SectionHeading("Activity", "")
         CalendarHeatmap(
             year = year,
             history = history,
@@ -412,12 +412,6 @@ private fun CalendarHeatmapCard(
             }
             Spacer(Modifier.width(4.dp))
             Text("More", style = MaterialTheme.typography.labelSmall, color = Mist)
-            Spacer(Modifier.weight(1f))
-            Text(
-                "Swipe sideways to explore",
-                style = MaterialTheme.typography.labelSmall,
-                color = Mist,
-            )
         }
     }
 }
@@ -436,6 +430,18 @@ private fun CalendarHeatmap(
     val cellGap = 2.dp
     val weekWidth = 13.dp
     val monthHeaderHeight = 18.dp
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    androidx.compose.runtime.LaunchedEffect(year, today) {
+        if (year == today.year) {
+            val idx = weeks.indexOfFirst { today in it.dates }
+            if (idx > 6) {
+                val px = with(density) { (weekWidth * (idx - 6)).roundToPx() }
+                horizontalScroll.scrollTo(px)
+            }
+        } else {
+            horizontalScroll.scrollTo(0)
+        }
+    }
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -776,12 +782,8 @@ private fun calendarHeatmapWeeks(year: Int): List<CalendarHeatmapWeek> {
         val dates = List(7) { weekdayIndex ->
             gridStart.plusDays((weekIndex * 7 + weekdayIndex).toLong())
         }
-        val firstInYear = dates.firstOrNull { it.year == year }
-        val monthLabel = if (firstInYear != null && firstInYear.dayOfMonth == 1) {
-            firstInYear.month.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)
-        } else {
-            null
-        }
+        val firstInMonth = dates.firstOrNull { it.year == year && it.dayOfMonth == 1 }
+        val monthLabel = firstInMonth?.month?.getDisplayName(TextStyle.SHORT, Locale.ENGLISH)
         CalendarHeatmapWeek(dates, monthLabel)
     }
 }

@@ -30,7 +30,7 @@ fun SchoolScreen(store: LocalStore, snapshot: AppSnapshot) {
     val average = Metrics.weightedAverage(snapshot.grades)
     val goal = snapshot.goalGrade
     LazyColumn(contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(15.dp)) {
-        item { PageHeading("STUDY · RESULTS", "School", "Subjects, weighted grades, exams and goals.") }
+        item { PageHeading("STUDY · RESULTS", "School", "") }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                 SmallStat("GRADE AVERAGE", average?.let { "%.2f".format(Locale.US, it) } ?: "—",
@@ -78,7 +78,7 @@ fun SchoolScreen(store: LocalStore, snapshot: AppSnapshot) {
                 if (ordered.isEmpty()) item { EmptyPanel("No exams planned", "Add a date to stay ready.") {
                     addExam = true
                 } }
-                items(ordered) { exam ->
+                items(ordered, key = { it.str("id") }) { exam ->
                     var confirm by remember { mutableStateOf(false) }
                     FrostCard(Modifier.fillMaxWidth()) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -128,7 +128,7 @@ fun SchoolScreen(store: LocalStore, snapshot: AppSnapshot) {
                     val subjectBefore = Metrics.weightedAverage(simGrades)
                     val overallBefore = average
                     val hypotheticalValue = hypothetical.cleanNumber()
-                    val valid = hypotheticalValue in 0.01..10.0 && simSubject.isNotBlank()
+                    val valid = hypotheticalValue in 0.0..10.0 && simSubject.isNotBlank()
                     val simulatedSubject = if (valid) Metrics.weightedAverage(
                         simGrades + JSONObject().put("value", hypotheticalValue).put("weight", 1.0)
                     ) else null
@@ -137,21 +137,21 @@ fun SchoolScreen(store: LocalStore, snapshot: AppSnapshot) {
                             .put("value", hypotheticalValue).put("weight", 1.0)
                     ) else null
                     FrostCard(Modifier.fillMaxWidth()) {
-                        Eyebrow("SIMULATORE DI VOTI", Mint)
-                        Text("Inserisci un voto ipotetico per vedere subito l'impatto sulla media della materia e sulla media generale.",
+                        Eyebrow("GRADE SIMULATOR", Mint)
+                        Text("Enter a hypothetical grade to see its impact on your subject and overall average.",
                             color = Mist, style = MaterialTheme.typography.bodySmall)
                         Chips(snapshot.subjects.map { it.str("name") },
                             snapshot.subjects.firstOrNull { it.str("id") == simSubject }?.str("name") ?: "") { value ->
                             simSubject = snapshot.subjects.firstOrNull { it.str("name") == value }?.str("id") ?: ""
                         }
-                        FormField("Voto ipotetico (0–10)", hypothetical, { hypothetical = it.take(4) })
+                        FormField("Hypothetical grade (0–10)", hypothetical, { hypothetical = it.take(4) })
                         Text(
-                            "Materia: ${subjectBefore?.let { "%.2f".format(Locale.US, it) } ?: "—"} → " +
+                            "Subject: ${subjectBefore?.let { "%.2f".format(Locale.US, it) } ?: "—"} → " +
                                 (simulatedSubject?.let { "%.2f".format(Locale.US, it) } ?: "—"),
                             style = MaterialTheme.typography.titleSmall
                         )
                         Text(
-                            "Generale: ${overallBefore?.let { "%.2f".format(Locale.US, it) } ?: "—"} → " +
+                            "Overall: ${overallBefore?.let { "%.2f".format(Locale.US, it) } ?: "—"} → " +
                                 (simulatedOverall?.let { "%.2f".format(Locale.US, it) } ?: "—"),
                             color = Ice, style = MaterialTheme.typography.titleSmall
                         )
@@ -234,8 +234,8 @@ private fun GradeEditor(store: LocalStore, subjects: List<JSONObject>, onDismiss
             store.put("grade", LocalStore.obj("subject" to chosen, "value" to grade.cleanNumber(),
                 "weight" to weight.cleanNumber(), "date" to date, "kind" to kind))
             onDismiss()
-        }, Modifier.fillMaxWidth(), enabled = chosen.isNotBlank() && grade.cleanNumber() in .01..10.0
-            && weight.cleanNumber() > 0 && runCatching { LocalDate.parse(date) }.isSuccess) {
+        }, Modifier.fillMaxWidth(), enabled = chosen.isNotBlank() && grade.cleanNumber() in 0.0..10.0
+            && weight.cleanNumber() > 0 && runCatching { LocalDate.parse(date.trim()) }.isSuccess) {
             Text("Save grade")
         }
     }
@@ -254,6 +254,6 @@ private fun ExamEditor(store: LocalStore, subjects: List<JSONObject>, onDismiss:
         }
         Button(onClick = { store.put("exam", LocalStore.obj("title" to title.trim(), "date" to date,
             "subject" to subject)); onDismiss() }, Modifier.fillMaxWidth(),
-            enabled = title.isNotBlank() && runCatching { LocalDate.parse(date) }.isSuccess) { Text("Save exam") }
+            enabled = title.isNotBlank() && runCatching { LocalDate.parse(date.trim()) }.isSuccess) { Text("Save exam") }
     }
 }

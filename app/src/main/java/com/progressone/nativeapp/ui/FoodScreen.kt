@@ -50,7 +50,9 @@ import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.BarcodeScanning
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -98,7 +100,7 @@ fun FoodScreen(
     var notes by rememberSaveable { mutableStateOf("") }
     var portion by rememberSaveable { mutableStateOf("") }
     var autoSavePending by rememberSaveable { mutableStateOf(false) }
-    var autoSaveDish by rememberSaveable { mutableStateOf<FoodDishInfo?>(null) }
+    var autoSaveDishId by rememberSaveable { mutableStateOf<String?>(null) }
     var autoSaveToast by remember { mutableStateOf("") }
 
     // AI Classification state
@@ -112,6 +114,12 @@ fun FoodScreen(
     var aiMacros by remember { mutableStateOf<MacroEstimate?>(null) }
     var aiMacroBusy by remember { mutableStateOf(false) }
     var aiMacroStatus by rememberSaveable { mutableStateOf("") }
+    var recognitionRequestId by remember { mutableLongStateOf(0L) }
+    var macroRequestId by remember { mutableLongStateOf(0L) }
+    var barcodeRequestId by remember { mutableLongStateOf(0L) }
+    var recognitionJob by remember { mutableStateOf<Job?>(null) }
+    var macroJob by remember { mutableStateOf<Job?>(null) }
+    var editorError by remember { mutableStateOf("") }
     var targetsEditor by remember { mutableStateOf(false) }
 
     // User profile for portion estimation
@@ -153,67 +161,75 @@ fun FoodScreen(
     }
 
     // One-tap auto-save: photo → vision AI → macro AI → saved meal, no typing
-    LaunchedEffect(autoSavePending, autoSaveDish, photo, date, group, portion, recognizedDishId, aiMacros) {
-        if (!autoSavePending || autoSaveDish == null || photo.isBlank()) return@LaunchedEffect
-        scope.launch {
-            try {
-                val dish = autoSaveDish!!
-                val ai = aiMacros
-                val serving = ai?.portionGrams ?: numeric(portion)
-                if (serving == null || serving <= 0) return@launch
-                val per100 = if (ai != null && ai.portionGrams > 0) {
-                    listOf(
-                        ai.calories / ai.portionGrams * 100.0,
-                        ai.protein / ai.portionGrams * 100.0,
-                        ai.carbs / ai.portionGrams * 100.0,
-                        ai.fat / ai.portionGrams * 100.0
-                    )
-                } else {
-                    listOf(dish.kcalPer100g, dish.proteinPer100g, dish.carbsPer100g, dish.fatPer100g)
-                }
-                val totals = NutritionMath.totalsForLabel(
-                    per100[0], per100[1], per100[2], per100[3], serving
+    LaunchedEffect(autoSavePending, autoSaveDishId, photo, date, group, portion, recognizedDishId, aiMacros) {
+        val dishId = autoSaveDishId ?: return@LaunchedEffect
+        val dish = FoodDatabase.getDish(dishId) ?: return@LaunchedEffect
+        if (!autoSavePending || photo.isBlank()) return@LaunchedEffect
+        try {
+            val ai = aiMacros
+            val serving = numeric(portion) ?: ai?.portionGrams
+            if (serving == null || serving <= 0) return@LaunchedEffect
+            val per100 = if (ai != null && ai.portionGrams > 0) {
+                listOf(
+                    ai.calories / ai.portionGrams * 100.0,
+                    ai.protein / ai.portionGrams * 100.0,
+                    ai.carbs / ai.portionGrams * 100.0,
+                    ai.fat / ai.portionGrams * 100.0
                 )
-                val scoreRes = FoodDatabase.calculateIntelligentScore(
-                    kcal = totals.kcal, protein = totals.protein, carbs = totals.carbs,
-                    fat = totals.fat, portionGrams = serving, baseScore = dish.healthScore
-                )
-                val item = LocalStore.obj(
-                    "id" to LocalStore.freshId(),
-                    "date" to date,
-                    "meal" to group,
-                    "name" to dish.displayName,
-                    "photo" to photo,
-                    "portion" to (ai?.portionLabel ?: portion),
-                    "notes" to "Auto-logged via AI photo",
-                    "kcal" to totals.kcal,
-                    "protein" to totals.protein,
-                    "carbs" to totals.carbs,
-                    "fat" to totals.fat,
-                    "nutritionKnown" to true,
-                    "foodScore" to scoreRes.score,
-                    "foodGrade" to scoreRes.grade,
-                    "dishId" to dish.id,
-                    "portionGrams" to serving.toString(),
-                    "per100kcal" to per100[0].toString(),
-                    "per100protein" to per100[1].toString(),
-                    "per100carbs" to per100[2].toString(),
-                    "per100fat" to per100[3].toString(),
-                    "barcode" to "",
-                    "nutritionSource" to if (ai != null) "macro_model" else "ai_food101",
-                    "macroSource" to (ai?.source ?: "FoodDatabase")
-                )
-                store.put("food", item)
-                unsavedPhotos.forEach { store.cleanupUnreferencedPhoto(it) }
-                unsavedPhotos = emptyList()
-                autoSavePending = false
-                autoSaveDish = null
-                autoSaveToast = "Saved: ${dish.displayName} · ${totals.kcal.roundToInt()} kcal · ${scoreRes.grade}"
-            } catch (e: Exception) {
-                autoSavePending = false
-                autoSaveDish = null
-                autoSaveToast = "Auto-save failed: ${e.localizedMessage ?: "error"}"
+            } else {
+                listOf(dish.kcalPer100g, dish.proteinPer100g, dish.carbsPer100g, dish.fatPer100g)
             }
+            val totals = NutritionMath.totalsForLabel(
+                per100[0], per100[1], per100[2], per100[3], serving
+            )
+            val scoreRes = FoodDatabase.calculateIntelligentScore(
+                kcal = totals.kcal, protein = totals.protein, carbs = totals.carbs,
+                fat = totals.fat, portionGrams = serving, baseScore = dish.healthScore
+            )
+            val item = LocalStore.obj(
+                "id" to LocalStore.freshId(),
+                "date" to date,
+                "meal" to group,
+                "name" to dish.displayName,
+                "photo" to photo,
+                "portion" to (ai?.portionLabel ?: portion),
+                "notes" to "",
+                "kcal" to totals.kcal,
+                "protein" to totals.protein,
+                "carbs" to totals.carbs,
+                "fat" to totals.fat,
+                "nutritionKnown" to true,
+                "foodScore" to scoreRes.score,
+                "foodGrade" to scoreRes.grade,
+                "dishId" to dish.id,
+                "portionGrams" to serving.toString(),
+                "per100kcal" to per100[0].toString(),
+                "per100protein" to per100[1].toString(),
+                "per100carbs" to per100[2].toString(),
+                "per100fat" to per100[3].toString(),
+                "barcode" to "",
+                "nutritionSource" to if (ai != null) "macro_model" else "ai_food101",
+                "macroSource" to (ai?.source ?: "FoodDatabase")
+            )
+            if (!store.put("food", item)) {
+                error("The meal could not be saved")
+            }
+            unsavedPhotos.forEach { store.cleanupUnreferencedPhoto(it) }
+            unsavedPhotos = emptyList()
+            autoSavePending = false
+            autoSaveDishId = null
+            autoSaveToast = "Saved: ${dish.displayName} · ${totals.kcal.roundToInt()} kcal · ${scoreRes.grade}"
+        } catch (e: Exception) {
+            autoSavePending = false
+            autoSaveDishId = null
+            autoSaveToast = "Auto-save failed: ${e.localizedMessage ?: "error"}"
+        }
+    }
+
+    LaunchedEffect(autoSaveToast) {
+        if (autoSaveToast.isNotBlank()) {
+            kotlinx.coroutines.delay(3500)
+            autoSaveToast = ""
         }
     }
 
@@ -228,35 +244,61 @@ fun FoodScreen(
     var barcodeNutrition by remember { mutableStateOf<ProductNutrition?>(null) }
 
     fun runMacroAi(dish: FoodDishInfo?, label: String = name) {
-        if (label.isBlank() || aiMacroBusy) return
-        scope.launch {
-            aiMacroBusy = true
-            aiMacroStatus = "Estimating macros with the on-device model…"
+        val requestLabel = label.trim()
+        if (requestLabel.isBlank()) return
+        val requestDishId = dish?.id.orEmpty()
+        val requestPortion = numeric(portion)
+        val requestId = ++macroRequestId
+        macroJob?.cancel()
+        aiMacroBusy = true
+        aiMacroStatus = "Estimating macros with the on-device model…"
+        macroJob = scope.launch {
             try {
-                val estimate = MacroModel.estimate(label, dish, numeric(portion))
+                val estimate = MacroModel.estimate(requestLabel, dish, requestPortion)
+                val stillCurrent = requestId == macroRequestId &&
+                    requestLabel == name.trim() &&
+                    requestDishId == recognizedDishId &&
+                    requestPortion == numeric(portion)
+                if (!stillCurrent) return@launch
                 aiMacros = estimate
                 portion = estimate.portionGrams.roundToInt().toString()
                 aiMacroStatus = "Macros from ${estimate.source} · ${estimate.portionLabel}"
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
-                aiMacroStatus = "Macro estimation failed: ${e.localizedMessage ?: "error"}"
+                if (requestId == macroRequestId) {
+                    aiMacroStatus = "Macro estimation failed: ${e.localizedMessage ?: "error"}"
+                }
             } finally {
-                aiMacroBusy = false
+                if (requestId == macroRequestId) aiMacroBusy = false
             }
         }
     }
 
     fun applyPresetDish(dish: FoodDishInfo) {
+        macroRequestId++
+        macroJob?.cancel()
+        aiMacroBusy = false
         recognizedDishId = dish.id
         name = dish.displayName
         aiMacros = null
         aiMacroStatus = ""
+        editorError = ""
         if (portion.isBlank()) portion = estimatedPortionGrams.roundToInt().toString()
     }
 
     fun runAiRecognition(photoPath: String) {
         if (photoPath.isBlank()) return
-        if (aiRunning) return
-        scope.launch {
+        val requestId = ++recognitionRequestId
+        recognitionJob?.cancel()
+        macroRequestId++
+        macroJob?.cancel()
+        aiMacroBusy = false
+        aiPredictions = emptyList()
+        aiMacros = null
+        aiMacroStatus = ""
+        recognizedDishId = ""
+        recognitionJob = scope.launch {
             aiRunning = true
             try {
                 // The model may still be preparing (first launch copies ~336 MB).
@@ -267,6 +309,7 @@ fun FoodScreen(
                     aiModelState = "failed"
                     throw error
                 }
+                if (requestId != recognitionRequestId || photo != photoPath) return@launch
                 aiAvailable = true
                 aiModelState = "ready"
                 aiStatusMessage = "Analyzing your meal with on-device AI…"
@@ -281,6 +324,7 @@ fun FoodScreen(
                         bitmap.recycle()
                     }
                 }
+                if (requestId != recognitionRequestId || photo != photoPath) return@launch
                 aiPredictions = predictions
                 if (predictions.isNotEmpty()) {
                     val top = predictions.first()
@@ -292,19 +336,18 @@ fun FoodScreen(
                     }
                     val dish = FoodDatabase.getDish(top.label)
                     if (dish != null) {
-                        recognizedDishId = dish.id
-                        if (name.isBlank() || name == "Meal") name = dish.displayName
                         portion = estimatedPortionGrams.roundToInt().toString()
                         applyPresetDish(dish)
                         // Second model: estimate macros for the recognised dish.
                         aiMacroStatus = "Estimating macros with the on-device model…"
                         val estimate = MacroModel.estimate(dish.displayName, dish)
+                        if (requestId != recognitionRequestId || photo != photoPath) return@launch
                         aiMacros = estimate
                         portion = estimate.portionGrams.roundToInt().toString()
                         aiMacroStatus = "Macros from ${estimate.source} · ${estimate.portionLabel}"
                         // One-tap auto-save when AI is confident — no typing needed
                         if (top.confidence >= 0.6f && !showEditor) {
-                            autoSaveDish = dish
+                            autoSaveDishId = dish.id
                             autoSavePending = true
                         }
                     } else {
@@ -317,14 +360,20 @@ fun FoodScreen(
                     aiStatusMessage = "No recognized food item detected in picture."
                     portion = estimatedPortionGrams.roundToInt().toString()
                 }
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: OutOfMemoryError) {
-                aiStatusMessage = "The photo or AI model needs more memory. Close other apps and retry with a smaller photo."
-                aiModelState = "failed"
-                aiAvailable = false
+                if (requestId == recognitionRequestId) {
+                    aiStatusMessage = "The photo or AI model needs more memory. Close other apps and retry with a smaller photo."
+                    aiModelState = "failed"
+                    aiAvailable = false
+                }
             } catch (e: Exception) {
-                aiStatusMessage = "AI analysis error: ${e.localizedMessage ?: "Processing error"}"
+                if (requestId == recognitionRequestId) {
+                    aiStatusMessage = "AI analysis error: ${e.localizedMessage ?: "Processing error"}"
+                }
             } finally {
-                aiRunning = false
+                if (requestId == recognitionRequestId) aiRunning = false
             }
         }
     }
@@ -378,6 +427,14 @@ fun FoodScreen(
     }
 
     fun loadEditor(record: JSONObject? = null) {
+        recognitionRequestId++
+        recognitionJob?.cancel()
+        macroRequestId++
+        macroJob?.cancel()
+        barcodeRequestId++
+        aiRunning = false
+        aiMacroBusy = false
+        editorError = ""
         editing = record
         name = record?.optString("name").orEmpty()
         group = record?.optString("meal", "Lunch") ?: "Lunch"
@@ -411,7 +468,7 @@ fun FoodScreen(
         deleteConfirm = ""
         showEditor = true
 
-        if (photo.isNotBlank()) {
+        if (record == null && photo.isNotBlank()) {
             runAiRecognition(photo)
         }
     }
@@ -430,6 +487,13 @@ fun FoodScreen(
 
     /** Close the editor and remove newly captured photos which were never persisted. */
     fun dismissEditor() {
+        recognitionRequestId++
+        recognitionJob?.cancel()
+        macroRequestId++
+        macroJob?.cancel()
+        barcodeRequestId++
+        aiRunning = false
+        aiMacroBusy = false
         showEditor = false
         cleanupUnsavedPhotos()
     }
@@ -504,24 +568,33 @@ fun FoodScreen(
     }
 
     suspend fun loadBarcodeProduct(code: String) {
+        val requestId = ++barcodeRequestId
         barcodeBusy = true
         barcodeStatus = ""
         try {
             val product = FoodProductLookup.byBarcode(code)
+            if (requestId != barcodeRequestId) return
             name = product.name
             barcode = product.barcode
             barcodeNutrition = product
             fromBarcode = true
+            macroRequestId++
+            macroJob?.cancel()
+            aiMacroBusy = false
             aiMacros = null
             recognizedDishId = ""
             aiPredictions = emptyList()
             barcodeStatus = "Product loaded: ${product.name}"
             if (portion.isBlank()) portion = estimatedPortionGrams.roundToInt().toString()
         } catch (e: Exception) {
-            barcodeStatus = e.message ?: "Product unavailable."
-            fromBarcode = false
-            barcodeNutrition = null
-        } finally { barcodeBusy = false }
+            if (requestId == barcodeRequestId) {
+                barcodeStatus = e.message ?: "Product unavailable."
+                fromBarcode = false
+                barcodeNutrition = null
+            }
+        } finally {
+            if (requestId == barcodeRequestId) barcodeBusy = false
+        }
     }
 
     fun lookupBarcode(code: String = barcode) {
@@ -612,32 +685,11 @@ fun FoodScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
         item {
-            PageHeading("AI NUTRITION", "Food", "Photo → AI recognizes dish → automatic nutrition & score")
+            PageHeading("NUTRITION", "Food", "")
         }
 
         item {
             CoachCard(insight = coachInsight, onAction = onOpen)
-        }
-
-        item {
-            FrostCard(Modifier.fillMaxWidth()) {
-                Eyebrow("TWO ON-DEVICE AI MODELS", Mint)
-                Text("1. Vision · ${MacroModel.VISION_MODEL_LABEL}",
-                    style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                Text("Recognises the dish from the photo, directly on the phone.",
-                    color = Mist, style = MaterialTheme.typography.bodySmall)
-                HorizontalDivider(color = GlassLight)
-                Text("2. Macro · ${MacroModel.MODEL_LABEL}",
-                    style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-                Text(
-                    "A small neural network bundled in the app estimates calories, protein, " +
-                        "carbs, fat and the portion size. No API key, no cloud, fully offline.",
-                    color = Mist, style = MaterialTheme.typography.bodySmall
-                )
-                if (aiMacroStatus.isNotBlank()) {
-                    Text(aiMacroStatus, color = Ice, style = MaterialTheme.typography.labelSmall)
-                }
-            }
         }
 
         item {
@@ -685,7 +737,7 @@ fun FoodScreen(
 
                 HorizontalDivider(color = GlassLight)
                 Text(
-                    "Target: ${targetKcal.roundToInt()} kcal · P ${targetProtein.roundToInt()} g · C ${targetCarbs.roundToInt()} g · G ${targetFat.roundToInt()} g",
+                    "Target: ${targetKcal.roundToInt()} kcal · P ${targetProtein.roundToInt()} g · C ${targetCarbs.roundToInt()} g · F ${targetFat.roundToInt()} g",
                     color = Mist, style = MaterialTheme.typography.bodySmall
                 )
                 LinearProgressIndicator(
@@ -693,24 +745,17 @@ fun FoodScreen(
                     modifier = Modifier.fillMaxWidth().height(7.dp),
                     color = if (totalKcal <= targetKcal) Mint else Lavender
                 )
-                TextButton(onClick = { targetsEditor = true }) { Text("Edit daily targets") }
+                TextButton(onClick = { targetsEditor = true }) { Text("Edit targets") }
 
                 Button(onClick = { loadEditor() }, modifier = Modifier.fillMaxWidth()) {
                     Icon(Icons.Rounded.CameraAlt, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
                     Text(
                         when (aiModelState) {
-                            "ready" -> "Photo Meal (AI scans automatically)"
-                            "preparing" -> "Photo Meal (AI model preparing…)"
-                            else -> "Photo Meal (AI unavailable — manual entry works)"
+                            "ready" -> "Add meal"
+                            "preparing" -> "Add meal (AI loading…)"
+                            else -> "Add meal (manual)"
                         }
-                    )
-                }
-                if (aiModelState == "failed") {
-                    Text(
-                        "AI recognition unavailable on this device. Manual entry still works.",
-                        color = Mist,
-                        style = MaterialTheme.typography.bodySmall
                     )
                 }
             }
@@ -718,7 +763,7 @@ fun FoodScreen(
 
         if (dayMeals.isEmpty()) {
             item {
-                EmptyPanel("No meals recorded", "Take a photo of your meal — AI recognizes the dish and calculates nutrition automatically.") {
+                EmptyPanel("No meals yet", "Log a meal with photo, barcode or manual entry.") {
                     loadEditor()
                 }
             }
@@ -843,21 +888,22 @@ fun FoodScreen(
             else -> dish?.fatPer100g ?: 0.0
         }
 
-        val serving = ai?.portionGrams ?: numeric(portion)
-        val calculatedTotals = if (!barcodeNutritionMissing && serving != null && serving > 0) {
+        val serving = numeric(portion) ?: ai?.portionGrams
+        val hasNutritionSource = barcodeValues != null || ai != null || dish != null
+        val calculatedTotals = if (hasNutritionSource && !barcodeNutritionMissing && serving != null && serving > 0) {
             runCatching {
-                NutritionMath.totalsForLabel(per100kcal, per100protein, per100carbs, per100fat, serving!!)
+                NutritionMath.totalsForLabel(per100kcal, per100protein, per100carbs, per100fat, serving)
             }.getOrNull()
         } else null
 
         val intelligentScore: NutritionalScoreResult? = remember(calculatedTotals, serving, recognizedDishId, aiMacros) {
-            if (calculatedTotals != null) {
+            if (calculatedTotals != null && serving != null && serving > 0) {
                 FoodDatabase.calculateIntelligentScore(
                     kcal = calculatedTotals.kcal,
                     protein = calculatedTotals.protein,
                     carbs = calculatedTotals.carbs,
                     fat = calculatedTotals.fat,
-                    portionGrams = serving!!,
+                    portionGrams = serving,
                     baseScore = dish?.healthScore
                 )
             } else null
@@ -965,6 +1011,8 @@ fun FoodScreen(
                                         else {
                                             name = pred.label.replaceFirstChar { it.uppercase() }
                                             recognizedDishId = pred.label.replace(' ', '_')
+                                            aiMacros = null
+                                            aiMacroStatus = ""
                                         }
                                     },
                                     label = { Text("${pred.label} (${(pred.confidence * 100).roundToInt()}%)") }
@@ -973,14 +1021,29 @@ fun FoodScreen(
                         }
                     }
 
-                    FormField("Meal name", name, { name = it.take(100) })
+                    FormField("Meal name", name, {
+                        val next = it.take(100)
+                        if (next != name) {
+                            name = next
+                            macroRequestId++
+                            macroJob?.cancel()
+                            aiMacroBusy = false
+                            aiMacros = null
+                            aiMacroStatus = ""
+                            val selectedDish = FoodDatabase.getDish(recognizedDishId)
+                            if (selectedDish != null &&
+                                !next.trim().equals(selectedDish.displayName, ignoreCase = true)
+                            ) {
+                                recognizedDishId = ""
+                            }
+                            editorError = ""
+                        }
+                    })
                     Chips(listOf("Breakfast", "Lunch", "Dinner", "Snack"), group) { group = it }
 
                     HorizontalDivider()
 
-                    Text("Automatic nutrition", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    Text("AI recognized dish · portion estimated from your height/weight · adjust below if needed",
-                        style = MaterialTheme.typography.bodySmall, color = Mist)
+                    Text("Nutrition", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
 
                     if (dish != null) {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1003,7 +1066,7 @@ fun FoodScreen(
                         Text(aiMacroStatus, color = Ice, style = MaterialTheme.typography.bodySmall)
                     }
                     if (ai != null) {
-                        Text("Fonte macro: ${ai.source}", color = Mint,
+                        Text("Macro source: ${ai.source}", color = Mint,
                             style = MaterialTheme.typography.labelSmall)
                     }
 
@@ -1059,22 +1122,34 @@ fun FoodScreen(
                                 SmallStat("FAT", "${formatFoodNumber(calculatedTotals.fat)} g", Modifier.weight(1f), Lavender)
                             }
                         } else {
-                            Text("Take a photo or scan a barcode to calculate nutrition automatically.", color = Mist, style = MaterialTheme.typography.bodySmall)
+                            Text(
+                                "No verified nutrition source is selected. You can still save this meal without nutrition values.",
+                                color = Mist,
+                                style = MaterialTheme.typography.bodySmall
+                            )
                         }
                     }
 
-                    if (editing != null) {
+                    editing?.let { currentEditing ->
+                        val editId = currentEditing.optString("id")
                         TextButton(onClick = {
-                            val id = editing!!.optString("id")
-                            if (deleteConfirm == id) {
-                                store.remove("food", id)
+                            if (deleteConfirm == editId) {
+                                store.remove("food", editId)
                                 dismissEditor()
                                 deleteConfirm = ""
-                            } else deleteConfirm = id
+                            } else deleteConfirm = editId
                         }) {
-                            Text(if (deleteConfirm == editing!!.optString("id")) "Confirm delete meal" else "Delete meal", color = MaterialTheme.colorScheme.error)
+                            Text(if (deleteConfirm == editId) "Confirm delete meal" else "Delete meal", color = MaterialTheme.colorScheme.error)
                         }
                     }
+                }
+
+                if (editorError.isNotBlank()) {
+                    Text(
+                        editorError,
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall
+                    )
                 }
 
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -1082,7 +1157,7 @@ fun FoodScreen(
                         Text("Cancel")
                     }
                     Button(
-                        enabled = formValid && calculatedTotals != null,
+                        enabled = formValid,
                         onClick = {
                             val oldPhoto = editing?.optString("photo")
                             val totals = calculatedTotals
@@ -1103,11 +1178,11 @@ fun FoodScreen(
                                 "foodScore" to (scoreRes?.score ?: 0),
                                 "foodGrade" to (scoreRes?.grade ?: ""),
                                 "dishId" to recognizedDishId,
-                                "portionGrams" to portion,
-                                "per100kcal" to per100kcal.toString(),
-                                "per100protein" to per100protein.toString(),
-                                "per100carbs" to per100carbs.toString(),
-                                "per100fat" to per100fat.toString(),
+                                "portionGrams" to if (totals != null) portion else JSONObject.NULL,
+                                "per100kcal" to if (totals != null) per100kcal.toString() else JSONObject.NULL,
+                                "per100protein" to if (totals != null) per100protein.toString() else JSONObject.NULL,
+                                "per100carbs" to if (totals != null) per100carbs.toString() else JSONObject.NULL,
+                                "per100fat" to if (totals != null) per100fat.toString() else JSONObject.NULL,
                                 "barcode" to barcode,
                                 "nutritionSource" to if (totals == null) "unverified"
                                     else if (fromBarcode && barcodeNutrition != null) "openfoodfacts"
@@ -1121,7 +1196,10 @@ fun FoodScreen(
                                         else ""
                                     )
                             )
-                            store.put("food", item)
+                            if (!store.put("food", item)) {
+                                editorError = "The meal could not be saved. Check the date and try again."
+                                return@Button
+                            }
                             if (!oldPhoto.isNullOrBlank() && oldPhoto != photo) {
                                 store.cleanupUnreferencedPhoto(oldPhoto)
                             }
@@ -1148,12 +1226,10 @@ fun FoodScreen(
         val targetsValid = parsedKcal != null && parsedProtein != null &&
             parsedCarbs != null && parsedFat != null
         BottomSheetFrame("Daily targets", { targetsEditor = false }) {
-            Text("Values used for the target bar and the daily summary.",
-                color = Mist, style = MaterialTheme.typography.bodySmall)
-            FormField("Calorie (kcal)", kcalText, { kcalText = it.take(9) })
-            FormField("Proteine (g)", proteinText, { proteinText = it.take(9) })
-            FormField("Carboidrati (g)", carbsText, { carbsText = it.take(9) })
-            FormField("Grassi (g)", fatText, { fatText = it.take(9) })
+            FormField("Calories (kcal)", kcalText, { kcalText = it.take(9) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+            FormField("Protein (g)", proteinText, { proteinText = it.take(9) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+            FormField("Carbs (g)", carbsText, { carbsText = it.take(9) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
+            FormField("Fat (g)", fatText, { fatText = it.take(9) }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal))
             if (!targetsValid) {
                 Text("Enter finite, plausible daily targets.",
                     color = MaterialTheme.colorScheme.error,

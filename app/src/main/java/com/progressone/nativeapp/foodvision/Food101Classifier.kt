@@ -41,15 +41,21 @@ class Food101Classifier private constructor(context: Context) : Closeable {
     private val labels: List<String>
 
     init {
-        labels = context.assets.open(LABELS_FILE)
-            .bufferedReader(Charsets.UTF_8).use { it.readLines() }
-            .filter { it.isNotBlank() }
-        require(labels.size == 101) { "Expected 101 Food-101 English labels, found ${labels.size}" }
+        try {
+            labels = context.assets.open(LABELS_FILE)
+                .bufferedReader(Charsets.UTF_8).use { it.readLines() }
+                .filter { it.isNotBlank() }
+            require(labels.size == 101) { "Expected 101 Food-101 English labels, found ${labels.size}" }
 
-        // Create session via file path to utilize memory-mapped file access
-        val modelFile = materializeModel(context)
-        session = environment.createSession(modelFile.absolutePath, options)
-        inputName = session.inputNames.first()
+            // Create session via file path to utilize memory-mapped file access
+            val modelFile = materializeModel(context)
+            session = environment.createSession(modelFile.absolutePath, options)
+            inputName = session.inputNames.firstOrNull()
+                ?: error("Food-101 model has no input tensor")
+        } catch (t: Throwable) {
+            runCatching { options.close() }
+            throw t
+        }
     }
 
     fun classify(bitmap: Bitmap, topK: Int = 4): List<Prediction> {
@@ -81,10 +87,16 @@ class Food101Classifier private constructor(context: Context) : Closeable {
 
     private fun imageToNchwFloat32(bitmap: Bitmap): FloatArray {
         // Preprocessor config: RGB, 224x224, [0,1] scaling and ImageNet mean/std normalization
-        val resized = Bitmap.createScaledBitmap(bitmap, 224, 224, true)
+        val software = if (bitmap.config == Bitmap.Config.HARDWARE) {
+            bitmap.copy(Bitmap.Config.ARGB_8888, false)
+        } else {
+            bitmap
+        }
+        val resized = Bitmap.createScaledBitmap(software, 224, 224, true)
         val pixels = IntArray(224 * 224)
         resized.getPixels(pixels, 0, 224, 0, 0, 224, 224)
-        if (resized !== bitmap) resized.recycle()
+        if (resized !== software) resized.recycle()
+        if (software !== bitmap) software.recycle()
 
         val means = floatArrayOf(0.485f, 0.456f, 0.406f)
         val stds = floatArrayOf(0.229f, 0.224f, 0.225f)

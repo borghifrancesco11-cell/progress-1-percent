@@ -81,24 +81,24 @@ fun SettingsScreen(store: LocalStore, onBack: () -> Unit, onReplayTutorial: () -
         if (uri != null) { pendingImport = uri; importConfirmation = true }
     }
     LazyColumn(contentPadding = PaddingValues(20.dp), verticalArrangement = Arrangement.spacedBy(17.dp)) {
-        item { PageHeading("CONTROL · TRANSPARENCY", "Settings", "Everything personal stays on your phone.") }
+        item { PageHeading("CONTROL · TRANSPARENCY", "Settings", "") }
         item {
             FrostCard(Modifier.fillMaxWidth()) {
-                Eyebrow("PROFILO & PARAMETRI FISICI", Ice)
-                Text("Nome, peso e altezza vengono usati per stimare le porzioni, calcolare il BMI e personalizzare i suggerimenti.",
+                Eyebrow("PROFILE & PHYSICAL DATA", Ice)
+                Text("Name, weight and height are used to estimate portions, calculate BMI and personalise suggestions.",
                     color = Mist, style = MaterialTheme.typography.bodySmall)
-                FormField("Nome", profileName, {
+                FormField("Name", profileName, {
                     profileName = it.take(40); profileError = ""
                 })
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    FormField("Peso (kg)", profileWeight, {
+                    FormField("Weight (kg)", profileWeight, {
                         profileWeight = it.take(8); profileError = ""
                     }, Modifier.weight(1f))
-                    FormField("Altezza (cm)", profileHeight, {
+                    FormField("Height (cm)", profileHeight, {
                         profileHeight = it.take(8); profileError = ""
                     }, Modifier.weight(1f))
                 }
-                FormField("Età", profileAge, {
+                FormField("Age", profileAge, {
                     profileAge = it.take(8); profileError = ""
                 })
                 val parsedHeight = if (profileHeight.isBlank()) null else InputValidation.parseHeightCm(profileHeight)

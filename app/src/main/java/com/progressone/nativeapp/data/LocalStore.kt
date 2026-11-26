@@ -99,18 +99,20 @@ class LocalStore(private val appContext: Context) : SQLiteOpenHelper(appContext,
      * sleep date) are skipped.  This keeps UI callers from persisting a
      * partially corrupt object while still allowing ordinary edits.
      */
-    fun put(type: String, record: JSONObject) {
+    fun put(type: String, record: JSONObject): Boolean {
         require(type in TYPES) { "Unsupported record type" }
         synchronized(MEDIA_LOCK) {
             try {
                 val id = record.optString("id").trim().ifBlank { freshId() }
                 record.put("id", id)
-                val clean = sanitizeEntity(type, record) ?: return
+                val clean = sanitizeEntity(type, record) ?: return false
                 writeEntity(writableDatabase, type, clean)
                 revision++
+                return true
             } catch (_: Exception) {
                 // A malformed caller object must not make the rest of the app
                 // crash or write NaN into SQLite.
+                return false
             }
         }
     }
@@ -1006,8 +1008,11 @@ class LocalStore(private val appContext: Context) : SQLiteOpenHelper(appContext,
                     obj.put("foodScore", score)
                 }
                 if (obj.optBoolean("nutritionKnown")) {
-                    val knownKcal = readFiniteNumber(obj, "kcal") ?: return null
-                    obj.put("kcal", knownKcal)
+                    for (field in listOf("kcal", "protein", "carbs", "fat")) {
+                        val total = readFiniteNumber(obj, field) ?: return null
+                        if (total !in 0.0..100_000.0) return null
+                        obj.put(field, total)
+                    }
                 }
             }
             "task" -> {
@@ -1075,12 +1080,24 @@ class LocalStore(private val appContext: Context) : SQLiteOpenHelper(appContext,
     }
 
     private fun validateWorkoutSets(record: JSONObject): Boolean {
-        val sets = record.optJSONArray("sets") ?: return true
-        for (i in 0 until sets.length()) {
-            val set = sets.optJSONObject(i) ?: return false
+        if (!validateSetArray(record.optJSONArray("sets"))) return false
+        val exercises = record.optJSONArray("exercises") ?: return true
+        if (exercises.length() > 10_000) return false
+        for (index in 0 until exercises.length()) {
+            val exercise = exercises.optJSONObject(index) ?: return false
+            if (!validateSetArray(exercise.optJSONArray("sets"))) return false
+        }
+        return true
+    }
+
+    private fun validateSetArray(sets: JSONArray?): Boolean {
+        if (sets == null) return true
+        if (sets.length() > 100_000) return false
+        for (index in 0 until sets.length()) {
+            val set = sets.optJSONObject(index) ?: return false
             val weight = readFiniteNumber(set, "weight") ?: return false
             val reps = readFiniteNumber(set, "reps") ?: return false
-            if (weight < 0.0 || reps < 0.0) return false
+            if (weight !in 0.0..100_000.0 || reps !in 0.0..100_000.0) return false
         }
         return true
     }

@@ -75,17 +75,21 @@ object MacroModel {
         mutex.withLock {
             if (session != null) return@withLock true
             runCatching {
-                val options = OrtSession.SessionOptions().apply { setIntraOpNumThreads(2) }
-                val bytes = context.assets.open(MODEL_FILE).use { it.readBytes() }
-                val created = environment.createSession(bytes, options)
-                session = created
                 val loaded = context.assets.open(LABELS_FILE)
                     .bufferedReader(Charsets.UTF_8).use { it.readLines() }
                     .filter { it.isNotBlank() }
                 if (loaded.size != 101) error("Expected 101 Food-101 labels, found ${loaded.size}")
-                labels = loaded
-                labelIndex = loaded.withIndex().associate { (index, label) ->
-                    normalize(label.replace('_', ' ')) to index
+                val options = OrtSession.SessionOptions().apply { setIntraOpNumThreads(2) }
+                try {
+                    val bytes = context.assets.open(MODEL_FILE).use { it.readBytes() }
+                    val created = environment.createSession(bytes, options)
+                    labels = loaded
+                    labelIndex = loaded.withIndex().associate { (index, label) ->
+                        normalize(label.replace('_', ' ')) to index
+                    }
+                    session = created
+                } finally {
+                    runCatching { options.close() }
                 }
                 true
             }.getOrElse { false }
@@ -105,7 +109,10 @@ object MacroModel {
         requestedGrams: Double? = null
     ): MacroEstimate = withContext(Dispatchers.IO) {
         val cleanName = foodName.trim().ifBlank { dish?.displayName ?: "meal" }
-        val prediction = predict(cleanName, classIndexFor(cleanName))
+        val classIdx = classIndexFor(cleanName).takeIf { it >= 0 }
+            ?: dish?.let { classIndexFor(it.id).takeIf { idx -> idx >= 0 } ?: classIndexFor(it.displayName) }
+            ?: -1
+        val prediction = predict(cleanName, classIdx)
         if (prediction == null) return@withContext fallback(cleanName, dish)
 
         val grams = requestedGrams?.takeIf { it > 0 }
@@ -166,6 +173,7 @@ object MacroModel {
                 protein100 in 0.0..80.0 &&
                 carbs100 in 0.0..95.0 &&
                 fat100 in 0.0..75.0 &&
+                (protein100 + carbs100 + fat100) <= 102.0 &&
                 portionGrams in 10.0..900.0
     }
 
@@ -196,12 +204,14 @@ object MacroModel {
     fun classIndexFor(name: String): Int {
         if (labelIndex.isEmpty()) return -1
         val normalized = normalize(name)
+        if (normalized.isEmpty()) return -1
         labelIndex[normalized]?.let { return it }
         var best = -1
         var bestLength = 0
         for ((label, index) in labelIndex) {
             if (label.isEmpty()) continue
-            val matches = normalized.contains(label) || label.contains(normalized)
+            val matches = normalized.contains(label) ||
+                (normalized.length >= 4 && label.contains(normalized))
             if (matches && label.length > bestLength) {
                 best = index
                 bestLength = label.length

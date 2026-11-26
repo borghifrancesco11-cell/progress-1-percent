@@ -241,10 +241,10 @@ private fun GymOverview(
             if (heightCm > 0 && weightKg > 0) {
                 val bmi = weightKg / ((heightCm / 100.0) * (heightCm / 100.0))
                 FrostCard(Modifier.fillMaxWidth()) {
-                    Eyebrow("DATI FISICI · PROFILO", Mint)
+                    Eyebrow("PHYSICAL PROFILE", Mint)
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        SmallStat("PESO", "%.1f kg".format(Locale.US, weightKg), Modifier.weight(1f), Ice)
-                        SmallStat("ALTEZZA", "${heightCm.roundToInt()} cm", Modifier.weight(1f), Mint)
+                        SmallStat("WEIGHT", "%.1f kg".format(Locale.US, weightKg), Modifier.weight(1f), Ice)
+                        SmallStat("HEIGHT", "${heightCm.roundToInt()} cm", Modifier.weight(1f), Mint)
                         SmallStat("BMI", "%.1f".format(Locale.US, bmi), Modifier.weight(1f), Lavender)
                     }
                     Text("Edit weight and height in Settings → Profile.", color = Mist,
@@ -268,8 +268,8 @@ private fun GymOverview(
 
         if (snapshot.gymTemplates.isEmpty()) {
             item {
-                EmptyPanel("No templates", "Create at least one template to start training.") {
-                    GymDefaults.seedIfEmpty(store)
+                EmptyPanel("No templates", "Restore the default templates to start training.") {
+                    GymDefaults.regenerate(store, discipline)
                 }
             }
         } else {
