@@ -5,9 +5,12 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.animateIntAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ArrowBack
@@ -33,6 +36,7 @@ import com.progressone.nativeapp.data.TaskHistory
 import com.progressone.nativeapp.data.LocalCoachEngine
 import com.progressone.nativeapp.data.enabledModuleIds
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.time.LocalDate
@@ -260,117 +264,146 @@ fun TodayScreen(
             }
         }
 
+        // ---- SLIDE BAR: 4 menus, each with 2 logically paired features ----
         item {
-            CoachCard(insight = coachInsight, onAction = onOpen)
-        }
+            data class SlideMenu(val name: String, val modules: List<HomeModule>)
+            val foodModule = if (isEnabled("food")) HomeModule(
+                "Food", Icons.Rounded.Restaurant,
+                when {
+                    todayMeals.isEmpty() -> "No meal yet"
+                    else -> "${todayMeals.size} meal${if (todayMeals.size != 1) "s" else ""} · ${todayMeals.sumOf { it.optDouble("kcal", 0.0) }.roundToInt()} kcal"
+                }, "food"
+            ) else null
+            val gymModule = if (isEnabled("gym")) HomeModule(
+                "Gym", Icons.Rounded.FitnessCenter,
+                when {
+                    gymData.todayCount > 0 -> "Done today"
+                    gymData.weekCount > 0 -> "${gymData.weekCount} this week"
+                    else -> "Start"
+                }, "gym"
+            ) else null
+            val sleepModule = if (isEnabled("sleep")) HomeModule(
+                "Sleep", Icons.Rounded.Bedtime,
+                when {
+                    sleepData.minutes > 0 -> SleepUtils.formatDuration(sleepData.minutes)
+                    sleepData.weekNights > 0 -> "avg ${SleepUtils.formatDuration(sleepData.weekAverage)}"
+                    else -> "Log"
+                }, "sleep"
+            ) else null
+            val trackerModule = HomeModule(
+                "Tracker", Icons.Rounded.TrackChanges,
+                if (goalsTodayTotal == 0) "No goals today"
+                else "$goalsTodayDone/$goalsTodayTotal goals", "track"
+            )
+            val tasksModule = HomeModule(
+                "Tasks", Icons.Rounded.Checklist,
+                if (todayTasksLeft == 0) "All done" else "$todayTasksLeft left today", "tasks"
+            )
+            val schoolModule = if (isEnabled("school")) {
+                val avg = Metrics.weightedAverage(snapshot.grades)
+                HomeModule(
+                    "School", Icons.Rounded.School,
+                    when {
+                        avg != null -> "Avg %.1f".format(Locale.US, avg)
+                        upcomingExams > 0 -> "$upcomingExams exams"
+                        else -> "Add subject"
+                    }, "school"
+                )
+            } else null
+            val moneyModule = if (isEnabled("money")) HomeModule(
+                "Money", Icons.Rounded.AccountBalanceWallet,
+                when {
+                    moneyData.spentToday > 0 -> "${euro(moneyData.spentToday)} today"
+                    moneyData.budget > 0 -> "${euro(moneyData.spent)} / ${euro(moneyData.budget)}"
+                    moneyData.spent > 0 -> "${euro(moneyData.spent)} this month"
+                    else -> "Add expense"
+                }, "money"
+            ) else null
+            val challengesModule = if (isEnabled("challenges")) HomeModule(
+                "Challenges", Icons.Rounded.EmojiEvents,
+                if (snapshot.challenges.isEmpty()) "None yet"
+                else "${snapshot.challenges.count { it.optBoolean("finished") }} of ${snapshot.challenges.size} done",
+                "challenges"
+            ) else null
+            val wardrobeModule = if (isEnabled("wardrobe")) HomeModule(
+                "Wardrobe", Icons.Rounded.Checkroom,
+                when {
+                    snapshot.outfits.isNotEmpty() -> "${snapshot.outfits.size} outfits"
+                    snapshot.garments.isNotEmpty() -> "${snapshot.garments.size} garments"
+                    else -> "Build it"
+                }, "wardrobe"
+            ) else null
+            val detoxModule = if (isEnabled("social")) HomeModule(
+                "Detox", Icons.Rounded.SelfImprovement, socialSummary, "social"
+            ) else null
 
-        // ---- SECTIONS: 4 topic groups, each with 2 module tiles ----
-        item {
+            val menus = listOf(
+                SlideMenu("Body", listOfNotNull(foodModule, gymModule).take(2)),
+                SlideMenu("Recovery", listOfNotNull(sleepModule, trackerModule).take(2)),
+                SlideMenu("Mind", listOfNotNull(tasksModule, schoolModule ?: detoxModule).take(2)),
+                SlideMenu("Life", listOfNotNull(moneyModule, challengesModule, wardrobeModule, detoxModule).take(2))
+            )
+
+            val pagerState = rememberPagerState(pageCount = { menus.size })
+            val coroutineScope = rememberCoroutineScope()
+
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                data class Section(val name: String, val modules: List<HomeModule>)
-                val sections = buildList<Section> {
-                    // Body: Food + Gym
-                    val bodyModules = buildList {
-                        if (isEnabled("food")) add(HomeModule(
-                            "Food", Icons.Rounded.Restaurant,
-                            when {
-                                todayMeals.isEmpty() -> "No meal yet"
-                                else -> "${todayMeals.size} meal${if (todayMeals.size != 1) "s" else ""} · ${todayMeals.sumOf { it.optDouble("kcal", 0.0) }.roundToInt()} kcal"
-                            }, "food"
-                        ))
-                        if (isEnabled("gym")) add(HomeModule(
-                            "Gym", Icons.Rounded.FitnessCenter,
-                            when {
-                                gymData.todayCount > 0 -> "Done today"
-                                gymData.weekCount > 0 -> "${gymData.weekCount} this week"
-                                else -> "Start"
-                            }, "gym"
-                        ))
-                    }
-                    if (bodyModules.isNotEmpty()) add(Section("Body", bodyModules))
-
-                    // Recovery: Sleep + Tracker
-                    val recoveryModules = buildList {
-                        if (isEnabled("sleep")) add(HomeModule(
-                            "Sleep", Icons.Rounded.Bedtime,
-                            when {
-                                sleepData.minutes > 0 -> SleepUtils.formatDuration(sleepData.minutes)
-                                sleepData.weekNights > 0 -> "avg ${SleepUtils.formatDuration(sleepData.weekAverage)}"
-                                else -> "Log"
-                            }, "sleep"
-                        ))
-                        add(HomeModule(
-                            "Tracker", Icons.Rounded.TrackChanges,
-                            if (goalsTodayTotal == 0) "No goals today"
-                            else "$goalsTodayDone/$goalsTodayTotal goals", "track"
-                        ))
-                    }
-                    if (recoveryModules.isNotEmpty()) add(Section("Recovery", recoveryModules))
-
-                    // Mind: Tasks + School
-                    val mindModules = buildList {
-                        add(HomeModule(
-                            "Tasks", Icons.Rounded.Checklist,
-                            if (todayTasksLeft == 0) "All done" else "$todayTasksLeft left today", "tasks"
-                        ))
-                        if (isEnabled("school")) {
-                            val avg = Metrics.weightedAverage(snapshot.grades)
-                            add(HomeModule(
-                                "School", Icons.Rounded.School,
-                                when {
-                                    avg != null -> "Avg %.1f".format(Locale.US, avg)
-                                    upcomingExams > 0 -> "$upcomingExams exams"
-                                    else -> "Add subject"
-                                }, "school"
-                            ))
+                // Slide bar selector
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(GlassLight, RoundedCornerShape(16.dp))
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    menus.forEachIndexed { index, menu ->
+                        val selected = pagerState.currentPage == index
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .background(
+                                    if (selected) Ice.copy(alpha = 0.22f) else androidx.compose.ui.graphics.Color.Transparent,
+                                    RoundedCornerShape(12.dp)
+                                )
+                                .clickable {
+                                    coroutineScope.launch {
+                                        if (reduceMotion) pagerState.scrollToPage(index)
+                                        else pagerState.animateScrollToPage(index)
+                                    }
+                                }
+                                .padding(vertical = 10.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = menu.name,
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                color = if (selected) Ice else Mist,
+                                maxLines = 1
+                            )
                         }
                     }
-                    if (mindModules.isNotEmpty()) add(Section("Mind", mindModules))
-
-                    // Life: Money + Challenges (+ Wardrobe/Social overflow)
-                    val lifeModules = buildList {
-                        if (isEnabled("money")) add(HomeModule(
-                            "Money", Icons.Rounded.AccountBalanceWallet,
-                            when {
-                                moneyData.spentToday > 0 -> "${euro(moneyData.spentToday)} today"
-                                moneyData.budget > 0 -> "${euro(moneyData.spent)} / ${euro(moneyData.budget)}"
-                                moneyData.spent > 0 -> "${euro(moneyData.spent)} this month"
-                                else -> "Add expense"
-                            }, "money"
-                        ))
-                        if (isEnabled("challenges")) add(HomeModule(
-                            "Challenges", Icons.Rounded.EmojiEvents,
-                            if (snapshot.challenges.isEmpty()) "None yet"
-                            else "${snapshot.challenges.count { it.optBoolean("finished") }} of ${snapshot.challenges.size} done",
-                            "challenges"
-                        ))
-                        if (isEnabled("wardrobe")) add(HomeModule(
-                            "Wardrobe", Icons.Rounded.Checkroom,
-                            when {
-                                snapshot.outfits.isNotEmpty() -> "${snapshot.outfits.size} outfits"
-                                snapshot.garments.isNotEmpty() -> "${snapshot.garments.size} garments"
-                                else -> "Build it"
-                            }, "wardrobe"
-                        ))
-                        if (isEnabled("social")) add(HomeModule("Detox", Icons.Rounded.SelfImprovement, socialSummary, "social"))
-                    }
-                    if (lifeModules.isNotEmpty()) add(Section("Life", lifeModules))
                 }
-                sections.forEach { section ->
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        Text(
-                            section.name.uppercase(),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = Mist
-                        )
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            section.modules.take(2).forEach { module ->
-                                HomeTile(module, Modifier.weight(1f)) { onOpen(module.route) }
+
+                // Horizontal swipeable pager for the 4 menus
+                HorizontalPager(
+                    state = pagerState,
+                    pageSpacing = 12.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) { page ->
+                    val pair = menus[page].modules
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        pair.forEach { module ->
+                            HomeTile(module, Modifier.weight(1f)) { onOpen(module.route) }
+                        }
+                        if (pair.size == 1) Spacer(Modifier.weight(1f))
+                        if (pair.isEmpty()) {
+                            FrostCard(Modifier.fillMaxWidth()) {
+                                Text("No modules enabled in this category", color = Mist, style = MaterialTheme.typography.bodySmall)
                             }
-                            if (section.modules.size == 1) Spacer(Modifier.weight(1f))
                         }
                     }
                 }
