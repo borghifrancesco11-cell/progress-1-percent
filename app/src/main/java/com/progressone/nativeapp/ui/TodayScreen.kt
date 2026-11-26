@@ -200,19 +200,19 @@ fun TodayScreen(
 
     LazyColumn(
         Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(20.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
+        contentPadding = PaddingValues(horizontal = 20.dp, vertical = 18.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp)
     ) {
         // Date header
         item {
             Text(
                 LocalDate.now().format(DateTimeFormatter.ofPattern("EEEE, d MMMM", Locale.ENGLISH)),
                 color = Mist,
-                style = MaterialTheme.typography.bodySmall
+                style = MaterialTheme.typography.bodyMedium
             )
         }
 
-        // ---- HERO: one card with the score, the ring and the three key numbers ----
+        // ---- HERO: score card ----
         item {
             val animatedScore by animateIntAsState(
                 targetValue = dailyBreakdown.score,
@@ -222,11 +222,11 @@ fun TodayScreen(
             FrostCard(Modifier.fillMaxWidth(), highlighted = true) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                    modifier = Modifier.fillMaxWidth()
+                    horizontalArrangement = Arrangement.spacedBy(18.dp),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
                 ) {
-                    ProgressRing(animatedScore / 100f, Modifier.size(96.dp), sizeDp = 96.dp)
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    ProgressRing(animatedScore / 100f, Modifier.size(112.dp), sizeDp = 112.dp)
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Eyebrow("TODAY'S SCORE", Mint)
                         Text(
                             "$animatedScore / 100",
@@ -243,9 +243,9 @@ fun TodayScreen(
                         )
                     }
                 }
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(16.dp))
                 HorizontalDivider(color = GlassLight)
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(14.dp))
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
                     SmallStat(
                         "GOALS",
@@ -393,7 +393,7 @@ fun TodayScreen(
                 ) { page ->
                     val pair = menus[page].modules
                     Row(
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         pair.forEach { module ->
@@ -440,22 +440,30 @@ private fun HomeRow(name: String, icon: ImageVector, subtitle: String, onClick: 
 
 @Composable
 private fun HomeTile(module: HomeModule, modifier: Modifier, onClick: () -> Unit) {
-    FrostCard(modifier, onClick = onClick) {
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+    FrostCard(modifier.heightIn(min = 152.dp), onClick = onClick) {
+        Column(
+            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Icon(module.icon, contentDescription = null, tint = Ice, modifier = Modifier.size(18.dp))
-            Column(Modifier.weight(1f)) {
+            Box(
+                modifier = Modifier
+                    .size(44.dp)
+                    .background(GlassLight, RoundedCornerShape(12.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(module.icon, contentDescription = null, tint = Ice, modifier = Modifier.size(24.dp))
+            }
+            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                 Text(
                     module.name,
-                    style = MaterialTheme.typography.labelLarge,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     module.subtitle,
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.bodySmall,
                     color = Mist,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
