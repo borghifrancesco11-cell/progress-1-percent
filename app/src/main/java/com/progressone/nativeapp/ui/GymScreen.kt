@@ -235,11 +235,37 @@ private fun GymOverview(
             CoachCard(insight = coachInsight, onAction = onOpen)
         }
 
+        val heightCm = store.setting("user_height_cm", "").cleanNumber()
+        val weightKg = store.setting("user_weight_kg", "").cleanNumber()
+        val bmi = if (heightCm > 0 && weightKg > 0) {
+            weightKg / ((heightCm / 100.0) * (heightCm / 100.0))
+        } else null
+        val recommendationTag = when {
+            bmi == null -> "Set weight & height in Settings for personalized plans"
+            bmi < 18.5 -> "BMI ${"%.1f".format(Locale.US, bmi)} · Focus: Lean mass & strength"
+            bmi < 25.0 -> "BMI ${"%.1f".format(Locale.US, bmi)} · Focus: Balanced strength & hypertrophy"
+            else -> "BMI ${"%.1f".format(Locale.US, bmi)} · Focus: Conditioning & joint-friendly"
+        }
+        val recommendedTemplates = run {
+            val all = snapshot.gymTemplates
+            if (bmi == null) all.take(2)
+            else {
+                val preferredIds = when {
+                    bmi < 18.5 -> setOf("gym_1", "gym_2", "hyb_1", "cali_1")
+                    bmi < 25.0 -> when (discipline) {
+                        "calisthenics" -> setOf("cali_1", "cali_2")
+                        "hybrid" -> setOf("hyb_1", "hyb_2")
+                        else -> setOf("gym_1", "gym_2")
+                    }
+                    else -> setOf("cali_1", "cali_2", "hyb_2", "gym_2")
+                }
+                val filtered = all.filter { it.optString("id") in preferredIds }
+                (if (filtered.isNotEmpty()) filtered else all).take(2)
+            }
+        }
+
         item {
-            val heightCm = store.setting("user_height_cm", "").cleanNumber()
-            val weightKg = store.setting("user_weight_kg", "").cleanNumber()
-            if (heightCm > 0 && weightKg > 0) {
-                val bmi = weightKg / ((heightCm / 100.0) * (heightCm / 100.0))
+            if (heightCm > 0 && weightKg > 0 && bmi != null) {
                 FrostCard(Modifier.fillMaxWidth()) {
                     Eyebrow("PHYSICAL PROFILE", Mint)
                     Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -247,8 +273,13 @@ private fun GymOverview(
                         SmallStat("HEIGHT", "${heightCm.roundToInt()} cm", Modifier.weight(1f), Mint)
                         SmallStat("BMI", "%.1f".format(Locale.US, bmi), Modifier.weight(1f), Lavender)
                     }
-                    Text("Edit weight and height in Settings → Profile.", color = Mist,
-                        style = MaterialTheme.typography.labelSmall)
+                    Text(recommendationTag, color = Mint, style = MaterialTheme.typography.labelSmall)
+                }
+            } else {
+                FrostCard(Modifier.fillMaxWidth()) {
+                    Eyebrow("PHYSICAL PROFILE", Mist)
+                    Text("Add weight and height in Settings → Profile to unlock personalized workout recommendations.",
+                        color = Mist, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
@@ -263,17 +294,17 @@ private fun GymOverview(
         }
 
         item {
-            SectionHeading("Templates", "${snapshot.gymTemplates.size} available")
+            SectionHeading("Recommended for you", recommendationTag)
         }
 
-        if (snapshot.gymTemplates.isEmpty()) {
+        if (recommendedTemplates.isEmpty()) {
             item {
                 EmptyPanel("No templates", "Restore the default templates to start training.") {
                     GymDefaults.regenerate(store, discipline)
                 }
             }
         } else {
-            items(snapshot.gymTemplates, key = { "tpl_${it.optString("id")}" }) { template ->
+            items(recommendedTemplates, key = { "tpl_${it.optString("id")}" }) { template ->
                 val exercises = template.optJSONArray("exercises")?.length() ?: 0
                 val sets = countSets(template)
                 FrostCard(Modifier.fillMaxWidth()) {

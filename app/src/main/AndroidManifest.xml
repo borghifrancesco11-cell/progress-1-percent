@@ -10,6 +10,11 @@
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions"/>
     <!-- Camera is accessed through an external system camera contract; no CAMERA permission needed. -->
+    <queries>
+        <intent>
+            <action android:name="android.media.action.IMAGE_CAPTURE" />
+        </intent>
+    </queries>
     <application
         android:label="Progress 1%"
         android:allowBackup="false"
